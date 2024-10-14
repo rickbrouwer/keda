@@ -76,6 +76,7 @@ const (
 	exclusiveSetTag = "exclusiveSet"
 	rangeTag        = "range"
 	separatorTag    = "separator"
+	dependTag       = "depend"
 )
 
 // Params is a struct that represents the parameter list that can be used in the keda tag
@@ -112,6 +113,9 @@ type Params struct {
 
 	// Separator is the tag parameter to define which separator will be used
 	Separator string
+
+	// Depend is the tag parameter to define if there is a dependency on a other field to make it required
+	Depend string
 }
 
 // Name returns the name of the parameter (or comma separated list of names if it has multiple)
@@ -177,7 +181,7 @@ func (sc *ScalerConfig) parseTypedConfig(typedConfig any, parentOptional bool) e
 			continue
 		}
 		tagParams.Optional = tagParams.Optional || parentOptional
-		if err := sc.setValue(fieldValue, tagParams); err != nil {
+		if err := sc.setValue(fieldValue, tagParams, typedConfig); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -190,7 +194,7 @@ func (sc *ScalerConfig) parseTypedConfig(typedConfig any, parentOptional bool) e
 }
 
 // setValue is a function that sets the value of the field based on the provided params
-func (sc *ScalerConfig) setValue(field reflect.Value, params Params) error {
+func (sc *ScalerConfig) setValue(field reflect.Value, params Params, typedConfig interface{}) error {
 	valFromConfig, exists := sc.configParamValue(params)
 	if exists && params.IsDeprecated() {
 		return fmt.Errorf("parameter %q is deprecated%v", params.Name(), params.DeprecatedMessage())
@@ -199,6 +203,13 @@ func (sc *ScalerConfig) setValue(field reflect.Value, params Params) error {
 		exists = true
 		valFromConfig = params.Default
 	}
+	if !exists && params.Depend != "" {
+		if isRequired, dependInfo := sc.checkDependency(params, typedConfig); isRequired {
+			return fmt.Errorf("missing required parameter %q (required because %s is set)", params.Name(), dependInfo)
+		}
+		return nil
+    }
+
 	if !exists && (params.Optional || params.IsDeprecated()) {
 		return nil
 	}
@@ -434,6 +445,33 @@ func (sc *ScalerConfig) configParamValue(params Params) (string, bool) {
 	return "", params.IsNested()
 }
 
+func (sc *ScalerConfig) checkDependency(params Params, typedConfig interface{}) (bool, string) {
+	dependParts := strings.SplitN(params.Depend, "(", 2)
+	dependField := dependParts[0]
+
+	v := reflect.ValueOf(typedConfig).Elem()
+	dependValue := v.FieldByName(dependField)
+
+	if !dependValue.IsValid() {
+		return false, ""
+	}
+
+	if len(dependParts) == 1 {
+		// Check if field is filled
+		if dependValue.Interface() != reflect.Zero(dependValue.Type()).Interface() {
+			return true, dependField
+		}
+	} else {
+		// Check if field is filled with specific value
+		expectedValue := strings.TrimSuffix(dependParts[1], ")")
+		if dependValue.String() == expectedValue {
+			return true, fmt.Sprintf("%s(%s)", dependField, expectedValue)
+		}
+	}
+
+	return false, ""
+}
+
 // paramsFromTag is a function that returns the Params struct based on the field tag
 func paramsFromTag(tag string, field reflect.StructField) (Params, error) {
 	params := Params{FieldName: field.Name}
@@ -494,6 +532,10 @@ func paramsFromTag(tag string, field reflect.StructField) (Params, error) {
 		case separatorTag:
 			if len(tsplit) > 1 {
 				params.Separator = strings.TrimSpace(tsplit[1])
+			}
+		case "dependTag":
+			if len(tsplit) > 1 {
+				params.Depend = strings.TrimSpace(tsplit[1])
 			}
 		case "":
 			continue
