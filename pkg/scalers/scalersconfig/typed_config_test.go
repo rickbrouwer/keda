@@ -583,3 +583,90 @@ func TestMultiName(t *testing.T) {
 	Expect(err).To(BeNil())
 	Expect(ts.Property).To(Equal("bbb"))
 }
+
+// TestDependency tests the depend tag
+func TestDependency(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Test case 1: Dependency satisfied
+	sc := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"stringVal":  "value1",
+			"stringVal2": "value2",
+		},
+	}
+
+	type testStruct struct {
+		StringVal  string `keda:"name=stringVal,  order=triggerMetadata"`
+		StringVal2 string `keda:"name=stringVal2, order=triggerMetadata, depend=stringVal"`
+	}
+
+	ts := testStruct{}
+	err := sc.TypedConfig(&ts)
+	Expect(err).To(BeNil())
+	Expect(ts.StringVal).To(Equal("value1"))
+	Expect(ts.StringVal2).To(Equal("value2"))
+
+	// Test case 2: Dependency not satisfied
+	sc2 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"stringVal": "value1",
+		},
+	}
+
+	ts2 := testStruct{}
+	err = sc2.TypedConfig(&ts2)
+	Expect(err).To(MatchError(`missing required parameter "stringVal2" (required because stringVal is set)`))
+
+	// Test case 3: Dependency satisfied with specific value
+	sc3 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"stringVal":  "value1",
+			"stringVal2": "value2",
+		},
+	}
+
+	type testStruct2 struct {
+		StringVal  string `keda:"name=stringVal,  order=triggerMetadata"`
+		StringVal2 string `keda:"name=stringVal2, order=triggerMetadata, depend=stringVal(value1)"`
+	}
+
+	ts3 := testStruct2{}
+	err = sc3.TypedConfig(&ts3)
+	Expect(err).To(BeNil())
+	Expect(ts3.StringVal).To(Equal("value1"))
+	Expect(ts3.StringVal2).To(Equal("value2"))
+
+	// Test case 4: Dependency not satisfied with specific value
+    	sc4 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+		"stringVal": "differentValue",
+		"stringVal2": "value2",
+		},
+	}
+
+	type testStruct2 struct {
+		StringVal  string `keda:"name=stringVal,  order=triggerMetadata"`
+		StringVal2 string `keda:"name=stringVal2, order=triggerMetadata, depend=stringVal(value1)"`
+	}
+
+	ts4 := testStruct2{}
+	err = sc4.TypedConfig(&ts4)
+	Expect(err).To(MatchError(`missing required parameter "stringVal2" (required because stringVal(value1) is set)`))
+
+	// Test case 5: Dependency not satisfied with specific value with missing parm
+    	sc4 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+		"stringVal": "differentValue",
+		},
+	}
+
+	type testStruct2 struct {
+		StringVal  string `keda:"name=stringVal,  order=triggerMetadata"`
+		StringVal2 string `keda:"name=stringVal2, order=triggerMetadata, depend=stringVal(value1)"`
+	}
+
+	ts4 := testStruct2{}
+	err = sc4.TypedConfig(&ts4)
+	Expect(err).To(MatchError(`missing required parameter "stringVal2" (required because stringVal(value1) is set)`))
+}
