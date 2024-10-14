@@ -533,7 +533,7 @@ func paramsFromTag(tag string, field reflect.StructField) (Params, error) {
 			if len(tsplit) > 1 {
 				params.Separator = strings.TrimSpace(tsplit[1])
 			}
-		case "dependTag":
+		case dependTag:
 			if len(tsplit) > 1 {
 				params.Depend = strings.TrimSpace(tsplit[1])
 			}
