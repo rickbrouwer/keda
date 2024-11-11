@@ -102,6 +102,13 @@ func (h *scaleHandler) buildScalers(ctx context.Context, withTriggers *kedav1alp
 		msg := fmt.Sprintf(message.ScalerIsBuiltMsg, trigger.Type)
 		h.recorder.Event(withTriggers, corev1.EventTypeNormal, eventreason.KEDAScalersStarted, msg)
 
+		if infoProvider, ok := scaler.(scalers.InfoProvider); ok {
+			if info := infoProvider.GetScalerInfo(); info != "" {
+				infoMsg := fmt.Sprintf("Scaler %s additional info: %s", trigger.Type, info)
+				h.recorder.Event(withTriggers, corev1.EventTypeNormal, eventreason.KEDAScalersInfo, infoMsg)
+			}
+		}
+
 		result = append(result, cache.ScalerBuilder{
 			Scaler:       scaler,
 			ScalerConfig: *config,

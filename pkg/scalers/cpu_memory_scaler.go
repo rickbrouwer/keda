@@ -18,6 +18,7 @@ type cpuMemoryScaler struct {
 	metadata     cpuMemoryMetadata
 	resourceName v1.ResourceName
 	logger       logr.Logger
+	info         string
 }
 
 type cpuMemoryMetadata struct {
@@ -33,19 +34,26 @@ type cpuMemoryMetadata struct {
 func NewCPUMemoryScaler(resourceName v1.ResourceName, config *scalersconfig.ScalerConfig) (Scaler, error) {
 	logger := InitializeLogger(config, "cpu_memory_scaler")
 
-	meta, err := parseResourceMetadata(config, logger)
+	meta, err := parseResourceMetadata(config)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing %s metadata: %w", resourceName, err)
 	}
 
-	return &cpuMemoryScaler{
+	scaler := &cpuMemoryScaler{
 		metadata:     meta,
 		resourceName: resourceName,
 		logger:       logger,
-	}, nil
+	}
+
+	// This is deprecated and can be removed later
+	if meta.Type != "" {
+		scaler.info = "The 'type' setting is DEPRECATED and will be removed in v2.18 - Use 'metricType' instead."
+	}
+
+	return scaler, nil
 }
 
-func parseResourceMetadata(config *scalersconfig.ScalerConfig, logger logr.Logger) (cpuMemoryMetadata, error) {
+func parseResourceMetadata(config *scalersconfig.ScalerConfig) (cpuMemoryMetadata, error) {
 	meta := cpuMemoryMetadata{}
 	err := config.TypedConfig(&meta)
 	if err != nil {
@@ -58,7 +66,6 @@ func parseResourceMetadata(config *scalersconfig.ScalerConfig, logger logr.Logge
 
 	// This is deprecated and can be removed later
 	if meta.Type != "" {
-		logger.Info("The 'type' setting is DEPRECATED and will be removed in v2.18 - Use 'metricType' instead.")
 		switch meta.Type {
 		case "AverageValue":
 			meta.MetricType = v2.AverageValueMetricType
@@ -98,6 +105,10 @@ func parseUtilization(value string) (*int32, error) {
 // Close no need for cpuMemory scaler
 func (s *cpuMemoryScaler) Close(context.Context) error {
 	return nil
+}
+
+func (s *cpuMemoryScaler) GetScalerInfo() string {
+	return s.info
 }
 
 // GetMetricSpecForScaling returns the metric spec for the HPA

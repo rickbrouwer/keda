@@ -23,6 +23,7 @@ type ibmmqScaler struct {
 	metadata   ibmmqMetadata
 	httpClient *http.Client
 	logger     logr.Logger
+	info       string
 }
 
 type ibmmqMetadata struct {
@@ -92,7 +93,6 @@ func NewIBMMQScaler(config *scalersconfig.ScalerConfig) (Scaler, error) {
 
 	// TODO: DEPRECATED to be removed in v2.18
 	if meta.TLS {
-		logger.Info("The 'tls' setting is DEPRECATED and will be removed in v2.18 - Use 'unsafeSsl' instead")
 		meta.UnsafeSsl = meta.TLS
 	}
 
@@ -106,12 +106,19 @@ func NewIBMMQScaler(config *scalersconfig.ScalerConfig) (Scaler, error) {
 		httpClient.Transport = kedautil.CreateHTTPTransportWithTLSConfig(tlsConfig)
 	}
 
-	return &ibmmqScaler{
+	scaler := &ibmmqScaler{
 		metricType: metricType,
 		metadata:   meta,
 		httpClient: httpClient,
 		logger:     logger,
-	}, nil
+	}
+
+	// TODO: DEPRECATED to be removed in v2.18
+	if meta.TLS {
+		scaler.info = "The 'tls' setting is DEPRECATED and will be removed in v2.18 - Use 'unsafeSsl' instead"
+	}
+
+	return scaler, nil
 }
 
 func (s *ibmmqScaler) Close(context.Context) error {
@@ -119,6 +126,10 @@ func (s *ibmmqScaler) Close(context.Context) error {
 		s.httpClient.CloseIdleConnections()
 	}
 	return nil
+}
+
+func (s *ibmmqScaler) GetScalerInfo() string {
+	return s.info
 }
 
 func parseIBMMQMetadata(config *scalersconfig.ScalerConfig) (ibmmqMetadata, error) {

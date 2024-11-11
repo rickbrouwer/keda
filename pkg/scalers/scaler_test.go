@@ -1,15 +1,45 @@
 package scalers
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	v2 "k8s.io/api/autoscaling/v2"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/metrics/pkg/apis/external_metrics"
 
 	scalersconfig "github.com/kedacore/keda/v2/pkg/scalers/scalersconfig"
 )
+
+type mockScaler struct {
+	info string
+}
+
+func (s *mockScaler) GetMetricSpecForScaling(context.Context) []v2.MetricSpec {
+	return nil
+}
+
+func (s *mockScaler) GetMetrics(context.Context, string) ([]external_metrics.ExternalMetricValue, error) {
+	return nil, nil
+}
+
+func (s *mockScaler) IsActive(context.Context) (bool, error) {
+	return false, nil
+}
+
+func (s *mockScaler) Close(context.Context) error {
+	return nil
+}
+
+func (s *mockScaler) GetMetricsAndActivity(context.Context, string) ([]external_metrics.ExternalMetricValue, bool, error) {
+	return nil, false, nil
+}
+
+func (s *mockScaler) GetScalerInfo() string {
+	return s.info
+}
 
 func TestGetMetricTargetType(t *testing.T) {
 	cases := []struct {
@@ -471,5 +501,43 @@ func TestConvertStringToType(t *testing.T) {
 			assert.Nil(t, err)
 			assert.Equalf(t, testData.expectedOutput, val, "test %s: expected %s but got %s", testData.name, testData.expectedOutput, val)
 		}
+	}
+}
+
+func TestScalerInfo(t *testing.T) {
+	cases := []struct {
+		name          string
+		scaler        Scaler
+		expectedInfo  string
+		expectingInfo bool
+	}{
+		{
+			name:          "scaler with info",
+			scaler:        &mockScaler{info: "test info message"},
+			expectedInfo:  "test info message",
+			expectingInfo: true,
+		},
+		{
+			name:          "scaler with empty info",
+			scaler:        &mockScaler{info: ""},
+			expectedInfo:  "",
+			expectingInfo: false,
+		},
+	}
+
+	for _, testCase := range cases {
+		tc := testCase
+		t.Run(tc.name, func(t *testing.T) {
+			if infoProvider, ok := tc.scaler.(InfoProvider); ok {
+				info := infoProvider.GetScalerInfo()
+				if tc.expectingInfo {
+					assert.Equal(t, tc.expectedInfo, info)
+				} else {
+					assert.Empty(t, info)
+				}
+			} else {
+				t.Error("Scaler does not implement InfoProvider interface")
+			}
+		})
 	}
 }
