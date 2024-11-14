@@ -33,7 +33,7 @@ type cpuMemoryMetadata struct {
 func NewCPUMemoryScaler(resourceName v1.ResourceName, config *scalersconfig.ScalerConfig) (Scaler, error) {
 	logger := InitializeLogger(config, "cpu_memory_scaler")
 
-	meta, err := parseResourceMetadata(config, logger)
+	meta, err := parseResourceMetadata(config)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing %s metadata: %w", resourceName, err)
 	}

@@ -20,6 +20,8 @@ import (
 	"net/url"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/runtime"
+
 	. "github.com/onsi/gomega"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -588,10 +590,10 @@ func TestMultiName(t *testing.T) {
 
 // TestDeprecatedAnnounce tests the deprecatedAnnounce tag
 func TestDeprecatedAnnounce(t *testing.T) {
-	RegisterTestingT(t)
+  RegisterTestingT(t)
 
-	// Create a mock recorder to capture the event
-	mockRecorder := &MockEventRecorder{}
+  // Create a mock recorder to capture the event
+  mockRecorder := &MockEventRecorder{}
 
 	sc := &ScalerConfig{
  		TriggerMetadata: map[string]string{
@@ -611,7 +613,7 @@ func TestDeprecatedAnnounce(t *testing.T) {
 
 	// Verify that the deprecation event was recorded
 	Expect(mockRecorder.EventCalled).To(BeTrue())
-	Expect(mockRecorder.Message).To(Equal("This parameter is deprecated. Use newParam instead"))
+  Expect(mockRecorder.Message).To(Equal("This parameter is deprecated. Use newParam instead"))
 }
 
 // MockEventRecorder is a mock implementation of record.EventRecorder

@@ -81,9 +81,9 @@ type ScalerConfig struct {
 
 // DeepCopyObject implements runtime.Object interface
 func (sc *ScalerConfig) DeepCopyObject() runtime.Object {
-	return &(*sc)
+  return &(*sc)
 }
 
 func (sc *ScalerConfig) GetObjectKind() schema.ObjectKind {
-	return schema.EmptyObjectKind
+  return schema.EmptyObjectKind
 }
