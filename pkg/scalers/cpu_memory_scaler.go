@@ -18,11 +18,10 @@ type cpuMemoryScaler struct {
 	metadata     cpuMemoryMetadata
 	resourceName v1.ResourceName
 	logger       logr.Logger
-	info         string
 }
 
 type cpuMemoryMetadata struct {
-	Type               string `keda:"name=type,          order=triggerMetadata, enum=Utilization;AverageValue, optional"`
+	Type               string `keda:"name=type,          order=triggerMetadata, enum=Utilization;AverageValue, optional, deprecatedAnnounce=The 'type' setting is DEPRECATED and will be removed in v2.18 - Use 'metricType' instead."`
 	Value              string `keda:"name=value,         order=triggerMetadata"`
 	ContainerName      string `keda:"name=containerName, order=triggerMetadata, optional"`
 	AverageValue       *resource.Quantity
@@ -43,11 +42,6 @@ func NewCPUMemoryScaler(resourceName v1.ResourceName, config *scalersconfig.Scal
 		metadata:     meta,
 		resourceName: resourceName,
 		logger:       logger,
-	}
-
-	// This is deprecated and can be removed later
-	if meta.Type != "" {
-		scaler.info = "The 'type' setting is DEPRECATED and will be removed in v2.18 - Use 'metricType' instead."
 	}
 
 	return scaler, nil
@@ -105,10 +99,6 @@ func parseUtilization(value string) (*int32, error) {
 // Close no need for cpuMemory scaler
 func (s *cpuMemoryScaler) Close(context.Context) error {
 	return nil
-}
-
-func (s *cpuMemoryScaler) GetScalerInfo() string {
-	return s.info
 }
 
 // GetMetricSpecForScaling returns the metric spec for the HPA
