@@ -54,11 +54,6 @@ type Scaler interface {
 	Close(ctx context.Context) error
 }
 
-// InfoProvider is an optional interface that scalers can implement to provide additional information
-type InfoProvider interface {
-	GetScalerInfo() string
-}
-
 // PushScaler interface
 type PushScaler interface {
 	Scaler

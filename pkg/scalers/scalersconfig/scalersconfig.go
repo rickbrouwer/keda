@@ -20,6 +20,9 @@ import (
 	"time"
 
 	v2 "k8s.io/api/autoscaling/v2"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/record"
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 )
@@ -68,4 +71,19 @@ type ScalerConfig struct {
 
 	// When we use the scaler for composite scaler, we shouldn't require the value because it'll be ignored
 	AsMetricSource bool
+
+	// For events
+	Recorder record.EventRecorder
+
+	// ScaledObjct
+	ScaledObject runtime.Object
+}
+
+// DeepCopyObject implements runtime.Object interface
+func (sc *ScalerConfig) DeepCopyObject() runtime.Object {
+    return &(*sc)
+}
+
+func (sc *ScalerConfig) GetObjectKind() schema.ObjectKind {
+    return schema.EmptyObjectKind
 }
