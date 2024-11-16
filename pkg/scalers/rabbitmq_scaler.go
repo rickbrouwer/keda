@@ -34,7 +34,6 @@ const (
 	rabbitModeTriggerConfigName            = "mode"
 	rabbitValueTriggerConfigName           = "value"
 	rabbitActivationValueTriggerConfigName = "activationValue"
-	rabbitModeUnknown                      = "Unknown"
 	rabbitModeQueueLength                  = "QueueLength"
 	rabbitModeMessageRate                  = "MessageRate"
 	defaultRabbitMQQueueLength             = 20
@@ -74,11 +73,11 @@ type rabbitMQMetadata struct {
 
 	QueueName string `keda:"name=queueName, order=triggerMetadata"`
 	// QueueLength or MessageRate
-	Mode string `keda:"name=mode,                                 order=triggerMetadata, optional, enum=QueueLength;MessageRate;Unknown, default=Unknown"`
+	Mode string `keda:"name=mode,                                 order=triggerMetadata, optional, enum=QueueLength;MessageRate, default=QueueLength"`
 	//
-	QueueLength float64 `keda:"name=queueLength, order=triggerMetadata, optional"`
+	QueueLength float64 `keda:"name=queueLength,                  order=triggerMetadata, optional, deprecated=use 'mode' with 'value' instead"`
 	// trigger value (queue length or publish/sec. rate)
-	Value float64 `keda:"name=value, order=triggerMetadata, optional"`
+	Value float64 `keda:"name=value,                              order=triggerMetadata, default=20"`
 	// activation value
 	ActivationValue float64 `keda:"name=activationValue, order=triggerMetadata, optional"`
 	// connection string for either HTTP or AMQP protocol
@@ -117,15 +116,6 @@ type rabbitMQMetadata struct {
 }
 
 func (r *rabbitMQMetadata) Validate() error {
-	if r.Protocol != amqpProtocol && r.Protocol != httpProtocol && r.Protocol != autoProtocol {
-		return fmt.Errorf("the protocol has to be either `%s`, `%s`, or `%s` but is `%s`",
-			amqpProtocol, httpProtocol, autoProtocol, r.Protocol)
-	}
-
-	if r.EnableTLS != rmqTLSEnable && r.EnableTLS != rmqTLSDisable {
-		return fmt.Errorf("err incorrect value for TLS given: %s", r.EnableTLS)
-	}
-
 	certGiven := r.Cert != ""
 	keyGiven := r.Key != ""
 	if certGiven != keyGiven {
@@ -142,17 +132,9 @@ func (r *rabbitMQMetadata) Validate() error {
 
 	// If the protocol is auto, check the host scheme.
 	if r.Protocol == autoProtocol {
-		parsedURL, err := url.Parse(r.Host)
+		_, err := url.Parse(r.Host)
 		if err != nil {
 			return fmt.Errorf("can't parse host to find protocol: %w", err)
-		}
-		switch parsedURL.Scheme {
-		case "amqp", "amqps":
-			r.Protocol = amqpProtocol
-		case "http", "https":
-			r.Protocol = httpProtocol
-		default:
-			return fmt.Errorf("unknown host URL scheme `%s`", parsedURL.Scheme)
 		}
 	}
 
@@ -176,34 +158,8 @@ func (r *rabbitMQMetadata) Validate() error {
 }
 
 func (r *rabbitMQMetadata) validateTrigger() error {
-	// If nothing is specified for the trigger then return the default
-	if r.QueueLength == 0 && r.Mode == rabbitModeUnknown && r.Value == 0 {
-		r.Mode = rabbitModeQueueLength
-		r.Value = defaultRabbitMQQueueLength
-		return nil
-	}
-
-	if r.QueueLength != 0 && (r.Mode != rabbitModeUnknown || r.Value != 0) {
-		return fmt.Errorf("queueLength is deprecated; configure only %s and %s", rabbitModeTriggerConfigName, rabbitValueTriggerConfigName)
-	}
-
-	if r.QueueLength != 0 {
-		r.Mode = rabbitModeQueueLength
-		r.Value = r.QueueLength
-
-		return nil
-	}
-
-	if r.Mode == rabbitModeUnknown {
-		return fmt.Errorf("%s must be specified", rabbitModeTriggerConfigName)
-	}
-
 	if r.Value == 0 {
 		return fmt.Errorf("%s must be specified", rabbitValueTriggerConfigName)
-	}
-
-	if r.Mode != rabbitModeQueueLength && r.Mode != rabbitModeMessageRate {
-		return fmt.Errorf("trigger mode %s must be one of %s, %s", r.Mode, rabbitModeQueueLength, rabbitModeMessageRate)
 	}
 
 	if r.Mode == rabbitModeMessageRate && r.Protocol != httpProtocol {
