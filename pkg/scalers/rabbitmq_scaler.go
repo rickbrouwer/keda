@@ -74,7 +74,7 @@ type rabbitMQMetadata struct {
 
 	QueueName string `keda:"name=queueName, order=triggerMetadata"`
 	// QueueLength or MessageRate
-	Mode string `keda:"name=mode, order=triggerMetadata, optional, default=Unknown"`
+	Mode string `keda:"name=mode,                                 order=triggerMetadata, optional, enum=QueueLength;MessageRate;Unknown, default=Unknown"`
 	//
 	QueueLength float64 `keda:"name=queueLength, order=triggerMetadata, optional"`
 	// trigger value (queue length or publish/sec. rate)
@@ -84,17 +84,17 @@ type rabbitMQMetadata struct {
 	// connection string for either HTTP or AMQP protocol
 	Host string `keda:"name=host, order=triggerMetadata;authParams;resolvedEnv"`
 	// either http or amqp protocol
-	Protocol string `keda:"name=protocol, order=triggerMetadata;authParams, optional, default=auto"`
+	Protocol              string  `keda:"name=protocol,           order=triggerMetadata;authParams, enum=amqp;http;auto, default=auto"`
 	// override the vhost from the connection info
 	VhostName string `keda:"name=vhostName, order=triggerMetadata, optional"`
 	// specify if the queueName contains a rexeg
 	UseRegex bool `keda:"name=useRegex, order=triggerMetadata, optional"`
 	// specify if the QueueLength value should exclude Unacknowledged messages (Ready messages only)
-	ExcludeUnacknowledged bool `keda:"name=excludeUnacknowledged, order=triggerMetadata, optional"`
+	ExcludeUnacknowledged bool `keda:"name=excludeUnacknowledged, order=triggerMetadata, enum=true;false, default=false"`
 	// specify the page size if useRegex is enabled
 	PageSize int64 `keda:"name=pageSize, order=triggerMetadata, optional, default=100"`
 	// specify the operation to apply in case of multiples queues
-	Operation string `keda:"name=operation, order=triggerMetadata, optional, default=sum"`
+	Operation             string  `keda:"name=operation,          order=triggerMetadata, enum=sum;max;avg, default=sum"`
 	// custom http timeout for a specific trigger
 	TimeoutMs int `keda:"name=timeout, order=triggerMetadata, optional"`
 
@@ -106,8 +106,8 @@ type rabbitMQMetadata struct {
 	Cert        string `keda:"name=cert, order=authParams, optional"`
 	Key         string `keda:"name=key, order=authParams, optional"`
 	KeyPassword string `keda:"name=keyPassword, order=authParams, optional"`
-	EnableTLS   string `keda:"name=tls, order=authParams, optional, default=disable"`
-	UnsafeSsl   bool   `keda:"name=unsafeSsl, order=triggerMetadata, optional"`
+	EnableTLS   string `keda:"name=tls,         order=authParams, default=disable"`
+	UnsafeSsl   bool   `keda:"name=unsafeSsl,   order=triggerMetadata, enum=true;false, default=false"`
 
 	// token provider for azure AD
 	WorkloadIdentityResource      string `keda:"name=workloadIdentityResource, order=authParams, optional"`
