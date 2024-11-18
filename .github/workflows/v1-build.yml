@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - v1
+permissions:
+  contents: read
 jobs:
   validate:
     name: Validate

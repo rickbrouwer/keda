@@ -89,7 +89,8 @@ New deprecation(s):
 ### Other
 
 - **General**: Bump newrelic-client-go deps to 2.51.2 (latest) ([#6325](https://github.com/kedacore/keda/pull/6325))
-
+- **General**: Lock down GitHub token permissions ([#6085](https://github.com/kedacore/keda/issues/6085))
+- **General**: Pin GitHub Action actions to specific version ([#6085](https://github.com/kedacore/keda/issues/6085))
 
 ## v2.16.0
 
