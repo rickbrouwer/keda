@@ -70,6 +70,13 @@ jobs:
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
 
+      # Get release information to determine id of the current release
+      - name: Get Release
+        id: get-release-info
+        uses: bruceadams/get-release@v1.3.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # https://github.com/sigstore/cosign-installer
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
@@ -84,12 +91,31 @@ jobs:
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
 
-        # Get release information to determine id of the current release
-      - name: Get Release
-        id: get-release-info
-        uses: bruceadams/get-release@v1.3.2
+      - name: Generate and Sign SBOMs
+        run: |
+          make generate-sboms
+          make sign-sboms
+
+      # Upload KEDA SBOM
+      - name: Upload KEDA SBOM
+        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.get-release-info.outputs.upload_url }}
+          asset_path: sbom.tar.gz
+          asset_name: sbom.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload KEDA SBOM signature
+        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.get-release-info.outputs.upload_url }}
+          asset_path: sbom-sig.tar.gz
+          asset_name: sbom-sig.tar.gz
+          asset_content_type: application/gzip
 
       # Upload deployment YAML file to GitHub release
       - name: Upload Deployment YAML file
@@ -101,18 +127,6 @@ jobs:
           upload_url: https://uploads.github.com/repos/kedacore/keda/releases/${{ steps.get-release-info.outputs.id }}/assets?name=keda-${{ steps.get_version.outputs.VERSION }}.yaml
           asset_path: keda-${{ steps.get_version.outputs.VERSION }}.yaml
           asset_name: keda-${{ steps.get_version.outputs.VERSION }}.yaml
-          asset_content_type: application/x-yaml
-
-      # Upload core deployment YAML file to GitHub release (TO BE DELETED FOR v2.12)
-      - name: Upload Deployment YAML file
-        id: upload-core-deployment-yaml
-        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: https://uploads.github.com/repos/kedacore/keda/releases/${{ steps.get-release-info.outputs.id }}/assets?name=keda-${{ steps.get_version.outputs.VERSION }}-core.yaml
-          asset_path: keda-${{ steps.get_version.outputs.VERSION }}-core.yaml
-          asset_name: keda-${{ steps.get_version.outputs.VERSION }}-core.yaml
           asset_content_type: application/x-yaml
 
       # Upload CRD deployment YAML file to GitHub release

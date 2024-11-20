@@ -258,6 +258,24 @@ set-version:
 	rm -rf ./version/version.go.out
 
 ##################################################
+# SBOM Generation                                #
+##################################################
+
+.PHONY: generate-sboms
+generate-sboms: ## Generate SBOMs for all images
+	syft $(IMAGE_CONTROLLER) -o spdx-json > keda-sbom.json
+	syft $(IMAGE_ADAPTER) -o spdx-json > keda-adapter-sbom.json
+	syft $(IMAGE_WEBHOOKS) -o spdx-json > keda-webhooks-sbom.json
+	tar -zcf sbom.tar.gz *-sbom.json
+
+.PHONY: sign-sboms
+sign-sboms: ## Sign generated SBOMs
+	COSIGN_EXPERIMENTAL=1 cosign sign-blob -y keda-sbom.json > keda-sbom.sig
+	COSIGN_EXPERIMENTAL=1 cosign sign-blob -y keda-adapter-sbom.json > keda-adapter-sbom.sig
+	COSIGN_EXPERIMENTAL=1 cosign sign-blob -y keda-webhooks-sbom.json > keda-webhooks-sbom.sig
+	tar -zcf sbom-sig.tar.gz *-sbom.sig
+
+##################################################
 # Deployment                                     #
 ##################################################
 
