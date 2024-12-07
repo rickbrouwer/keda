@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/metrics/pkg/apis/external_metrics"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	"github.com/kedacore/keda/v2/pkg/mock/mock_client"
