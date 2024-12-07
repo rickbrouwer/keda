@@ -93,23 +93,17 @@ func TestCacheInvalidation(t *testing.T) {
 	key := scaledObject.GenerateIdentifier()
 	sh.scalerCaches[key] = &oldCache
 
-	// Mock Get to return error, which should keep the old cache
-	mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("test error"))
+	// Expect the scaler to be closed
+	scaler.EXPECT().Close(gomock.Any())
 
 	// Test cache invalidation
 	err := sh.ClearScalersCache(context.TODO(), &scaledObject)
-	assert.NotNil(t, err)
+	assert.Nil(t, err)
 
-	// Verify old cache is still there when we get an error
-	currentCache, exists := sh.scalerCaches[key]
-	assert.True(t, exists)
-	assert.Equal(t, &oldCache, currentCache)
-
-	// Verify old cache is properly closed
-	scaler.EXPECT().Close(gomock.Any())
-	oldCache.Close(context.Background())
+	// Verify cache is removed
+	_, exists := sh.scalerCaches[key]
+	assert.False(t, exists)
 }
-
 func TestCacheInvalidationSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	recorder := record.NewFakeRecorder(1)
