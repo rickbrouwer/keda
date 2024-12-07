@@ -103,13 +103,10 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     // Mock the performGetScalersCache to return our simplified new cache
     mockClient.EXPECT().
         Get(gomock.Any(), gomock.Any(), gomock.Any()).
-        DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj runtime.Object) error {
+        DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj *kedav1alpha1.ScaledObject) error {
             // Simulate successful get of ScaledObject
-            scaledObj, ok := obj.(*kedav1alpha1.ScaledObject)
-            if ok {
-                scaledObj.ObjectMeta = scaledObject.ObjectMeta
-                scaledObj.Spec = scaledObject.Spec
-            }
+            obj.ObjectMeta = scaledObject.ObjectMeta
+            obj.Spec = scaledObject.Spec
             return nil
         }).AnyTimes()
 
