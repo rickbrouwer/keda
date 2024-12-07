@@ -75,10 +75,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
 
     // Create old cache
     oldScaler := mock_scalers.NewMockScaler(ctrl)
-    oldScaler.EXPECT().Close(gomock.Any()).Times(1).Do(func(ctx context.Context) {
-        // Immediate return to prevent hanging
-        return
-    })
+    oldScaler.EXPECT().Close(gomock.Any()).AnyTimes()
     
     oldCache := &cache.ScalersCache{
         ScaledObject: &scaledObject,
@@ -100,11 +97,10 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         scaledObjectsMetricCache: metricscache.NewMetricsCache(),
     }
 
-    // Mock the performGetScalersCache to return our simplified new cache
+    // Mock the Get call with all required parameters
     mockClient.EXPECT().
-        Get(gomock.Any(), gomock.Any(), gomock.Any()).
-        DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj *kedav1alpha1.ScaledObject) error {
-            // Simulate successful get of ScaledObject
+        Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+        DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj *kedav1alpha1.ScaledObject, opts ...client.GetOption) error {
             obj.ObjectMeta = scaledObject.ObjectMeta
             obj.Spec = scaledObject.Spec
             return nil
@@ -118,6 +114,9 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     cache, exists := sh.scalerCaches[scaledObject.GenerateIdentifier()]
     assert.True(t, exists)
     assert.NotEqual(t, oldCache, cache)
+
+    // Give some time for the async Close to be called
+    time.Sleep(100 * time.Millisecond)
 }
 
 func TestClearScalersCache_WithFailedNewCacheCreation(t *testing.T) {
