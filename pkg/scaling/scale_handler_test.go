@@ -88,13 +88,6 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         Recorder: recorder,
     }
 
-    // Create new empty cache for simplified testing
-    newCache := &cache.ScalersCache{
-        ScaledObject: &scaledObject,
-        Scalers:      []cache.ScalerBuilder{},
-        Recorder:     recorder,
-    }
-
     sh := scaleHandler{
         client:                   mockClient,
         scaleLoopContexts:        &sync.Map{},
@@ -110,7 +103,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     // Mock the performGetScalersCache to return our simplified new cache
     mockClient.EXPECT().
         Get(gomock.Any(), gomock.Any(), gomock.Any()).
-        DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object) error {
+        DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj runtime.Object) error {
             // Simulate successful get of ScaledObject
             scaledObj, ok := obj.(*kedav1alpha1.ScaledObject)
             if ok {
@@ -129,6 +122,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     assert.True(t, exists)
     assert.NotEqual(t, oldCache, cache)
 }
+
 func TestClearScalersCache_WithFailedNewCacheCreation(t *testing.T) {
     ctrl := gomock.NewController(t)
     recorder := record.NewFakeRecorder(1)
