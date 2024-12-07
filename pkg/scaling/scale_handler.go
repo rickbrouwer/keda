@@ -393,41 +393,40 @@ func (h *scaleHandler) performGetScalersCache(ctx context.Context, key string, s
 
 // ClearScalersCache invalidates cache for the input scalableObject
 func (h *scaleHandler) ClearScalersCache(ctx context.Context, scalableObject interface{}) error {
-	withTriggers, err := kedav1alpha1.AsDuckWithTriggers(scalableObject)
-	if err != nil {
-		return err
-	}
+    withTriggers, err := kedav1alpha1.AsDuckWithTriggers(scalableObject)
+    if err != nil {
+        return err
+    }
 
-	key := withTriggers.GenerateIdentifier()
+    key := withTriggers.GenerateIdentifier()
 
-	go h.scaledObjectsMetricCache.Delete(key)
+    // Start async deletion of metrics cache
+    go h.scaledObjectsMetricCache.Delete(key)
 
-	h.scalerCachesLock.Lock()
-	defer h.scalerCachesLock.Unlock()
+    // Create new cache before acquiring lock
+    newCache, err := h.performGetScalersCache(ctx, key, scalableObject, &withTriggers.Generation, "", "", "")
+    if err != nil {
+        log.Error(err, "Failed to build new cache", "key", key)
+        return err
+    }
 
-	oldCache, exists := h.scalerCaches[key]
-	if !exists {
-		return nil
-	}
+    h.scalerCachesLock.Lock()
+    defer h.scalerCachesLock.Unlock()
 
-	// Get new cache while keeping old one
-	newCache, err := h.performGetScalersCache(ctx, key, scalableObject, &withTriggers.Generation, "", "", "")
-	if err != nil {
-		log.Error(err, "Failed to build new cache, keeping old cache", "key", key)
-		return err
-	}
+    // Get old cache
+    oldCache, exists := h.scalerCaches[key]
+    
+    // Update to new cache
+    h.scalerCaches[key] = newCache
 
-	// Only remove old cache after new one is successfully created
-	if oldCache != nil {
-		go func(cache *cache.ScalersCache) {
-			cache.Close(ctx)
-		}(oldCache)
-	}
+    // Close old cache asynchronously if it existed
+    if exists && oldCache != nil {
+        go func(cache *cache.ScalersCache) {
+            cache.Close(ctx)
+        }(oldCache)
+    }
 
-	// Atomic switch to new cache
-	h.scalerCaches[key] = newCache
-
-	return nil
+    return nil
 }
 
 /// --------------------------------------------------------------------------- ///
