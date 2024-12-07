@@ -52,6 +52,101 @@ const testNamespaceGlobal = "testNamespace"
 const compositeMetricNameGlobal = "composite-metric"
 const testNameGlobal = "testName"
 
+func TestCacheInvalidation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	recorder := record.NewFakeRecorder(1)
+	mockClient := mock_client.NewMockClient(ctrl)
+
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-deployment",
+			Namespace: "test",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Template: v1.PodTemplateSpec{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scaledObject := kedav1alpha1.ScaledObject{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "test",
+		},
+		Spec: kedav1alpha1.ScaledObjectSpec{
+			ScaleTargetRef: &kedav1alpha1.ScaleTarget{
+				Name: deployment.Name,
+			},
+		},
+		Status: kedav1alpha1.ScaledObjectStatus{
+			ScaleTargetGVKR: &kedav1alpha1.GroupVersionKindResource{
+				Group: "apps",
+				Kind:  "Deployment",
+			},
+		},
+	}
+
+	// Setup initial scaler
+	scaler := mock_scalers.NewMockScaler(ctrl)
+	scalerConfig := scalersconfig.ScalerConfig{TriggerUseCachedMetrics: false}
+
+	oldCache := cache.ScalersCache{
+		ScaledObject: &scaledObject,
+		Scalers: []cache.ScalerBuilder{{
+			Scaler:       scaler,
+			ScalerConfig: scalerConfig,
+		}},
+		Recorder: recorder,
+	}
+
+	sh := scaleHandler{
+		client:                   mockClient,
+		scalerCaches:             map[string]*cache.ScalersCache{},
+		scalerCachesLock:         &sync.RWMutex{},
+		scaledObjectsMetricCache: metricscache.NewMetricsCache(),
+	}
+
+	key := scaledObject.GenerateIdentifier()
+	sh.scalerCaches[key] = &oldCache
+
+	// Mock ScaledObject get
+	mockClient.EXPECT().Get(gomock.Any(), types.NamespacedName{Name: scaledObject.Name, Namespace: scaledObject.Namespace}, gomock.Any()).
+		DoAndReturn(func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			so := obj.(*kedav1alpha1.ScaledObject)
+			scaledObject.DeepCopyInto(so)
+			return nil
+		}).AnyTimes()
+
+	// Mock Deployment get
+	mockClient.EXPECT().Get(gomock.Any(), types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, gomock.Any()).
+		DoAndReturn(func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			d := obj.(*appsv1.Deployment)
+			deployment.DeepCopyInto(d)
+			return nil
+		}).AnyTimes()
+
+	// Test cache invalidation
+	err := sh.ClearScalersCache(context.TODO(), &scaledObject)
+	assert.Nil(t, err)
+
+	// Verify old cache is kept until new one is ready
+	newCache, exists := sh.scalerCaches[key]
+	assert.True(t, exists)
+	assert.NotNil(t, newCache)
+	assert.NotEqual(t, &oldCache, newCache) // Verify we got a new cache
+
+	// Verify old cache is properly closed
+	scaler.EXPECT().Close(gomock.Any())
+	oldCache.Close(context.Background())
+}
+
 func TestGetScaledObjectMetrics_DirectCall(t *testing.T) {
 	scaledObjectName := testNameGlobal
 	scaledObjectNamespace := testNamespaceGlobal

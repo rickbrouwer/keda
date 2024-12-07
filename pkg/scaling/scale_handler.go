@@ -391,7 +391,7 @@ func (h *scaleHandler) performGetScalersCache(ctx context.Context, key string, s
 	return h.scalerCaches[key], nil
 }
 
-// ClearScalersCache invalidates chache for the input scalableObject
+// ClearScalersCache invalidates cache for the input scalableObject
 func (h *scaleHandler) ClearScalersCache(ctx context.Context, scalableObject interface{}) error {
 	withTriggers, err := kedav1alpha1.AsDuckWithTriggers(scalableObject)
 	if err != nil {
@@ -404,11 +404,28 @@ func (h *scaleHandler) ClearScalersCache(ctx context.Context, scalableObject int
 
 	h.scalerCachesLock.Lock()
 	defer h.scalerCachesLock.Unlock()
-	if cache, ok := h.scalerCaches[key]; ok {
-		log.V(1).WithValues("key", key).Info("Removing entry from ScalersCache")
-		cache.Close(ctx)
-		delete(h.scalerCaches, key)
+
+	oldCache, exists := h.scalerCaches[key]
+	if !exists {
+		return nil
 	}
+
+	// Get new cache while keeping old one
+	newCache, err := h.performGetScalersCache(ctx, key, scalableObject, &withTriggers.Generation, "", "", "")
+	if err != nil {
+		log.Error(err, "Failed to build new cache, keeping old cache", "key", key)
+		return err
+	}
+
+	// Only remove old cache after new one is successfully created
+	if oldCache != nil {
+		go func(cache *cache.ScalersCache) {
+			cache.Close(ctx)
+		}(oldCache)
+	}
+
+	// Atomic switch to new cache
+	h.scalerCaches[key] = newCache
 
 	return nil
 }
