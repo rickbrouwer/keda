@@ -82,8 +82,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         Recorder: recorder,
     }
 
-    // Create new scaler
-    newScaler := mock_scalers.NewMockScaler(ctrl)
+    // Mock client behavior for new cache creation
     mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
     
     sh := scaleHandler{
@@ -107,7 +106,6 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     assert.True(t, exists)
     assert.NotEqual(t, oldCache, cache)
 }
-
 func TestClearScalersCache_WithFailedNewCacheCreation(t *testing.T) {
     ctrl := gomock.NewController(t)
     recorder := record.NewFakeRecorder(1)
