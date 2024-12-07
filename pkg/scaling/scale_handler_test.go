@@ -57,6 +57,67 @@ func TestCacheInvalidation(t *testing.T) {
 	recorder := record.NewFakeRecorder(1)
 	mockClient := mock_client.NewMockClient(ctrl)
 
+	// Setup initial scaler
+	scaler := mock_scalers.NewMockScaler(ctrl)
+	scalerConfig := scalersconfig.ScalerConfig{TriggerUseCachedMetrics: false}
+
+	scaledObject := kedav1alpha1.ScaledObject{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "test",
+		},
+		Spec: kedav1alpha1.ScaledObjectSpec{
+			ScaleTargetRef: &kedav1alpha1.ScaleTarget{
+				Name: "test",
+			},
+		},
+	}
+
+	oldCache := cache.ScalersCache{
+		ScaledObject: &scaledObject,
+		Scalers: []cache.ScalerBuilder{{
+			Scaler:       scaler,
+			ScalerConfig: scalerConfig,
+		}},
+		Recorder: recorder,
+	}
+
+	sh := scaleHandler{
+		client:                   mockClient,
+		scalerCaches:             map[string]*cache.ScalersCache{},
+		scalerCachesLock:         &sync.RWMutex{},
+		scaledObjectsMetricCache: metricscache.NewMetricsCache(),
+	}
+
+	key := scaledObject.GenerateIdentifier()
+	sh.scalerCaches[key] = &oldCache
+
+	// Mock Get to return error, which should keep the old cache
+	mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("test error"))
+
+	// Test cache invalidation
+	err := sh.ClearScalersCache(context.TODO(), &scaledObject)
+	assert.NotNil(t, err)
+
+	// Verify old cache is still there when we get an error
+	currentCache, exists := sh.scalerCaches[key]
+	assert.True(t, exists)
+	assert.Equal(t, &oldCache, currentCache)
+
+	// Verify old cache is properly closed
+	scaler.EXPECT().Close(gomock.Any())
+	oldCache.Close(context.Background())
+}
+
+func TestCacheInvalidationSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	recorder := record.NewFakeRecorder(1)
+	mockClient := mock_client.NewMockClient(ctrl)
+
+	// Setup initial scaler
+	scaler := mock_scalers.NewMockScaler(ctrl)
+	scalerConfig := scalersconfig.ScalerConfig{TriggerUseCachedMetrics: false}
+
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-deployment",
@@ -93,10 +154,6 @@ func TestCacheInvalidation(t *testing.T) {
 		},
 	}
 
-	// Setup initial scaler
-	scaler := mock_scalers.NewMockScaler(ctrl)
-	scalerConfig := scalersconfig.ScalerConfig{TriggerUseCachedMetrics: false}
-
 	oldCache := cache.ScalersCache{
 		ScaledObject: &scaledObject,
 		Scalers: []cache.ScalerBuilder{{
@@ -116,37 +173,33 @@ func TestCacheInvalidation(t *testing.T) {
 	key := scaledObject.GenerateIdentifier()
 	sh.scalerCaches[key] = &oldCache
 
-	// Mock ScaledObject get
+	// Mock successful Get calls
 	mockClient.EXPECT().Get(gomock.Any(), types.NamespacedName{Name: scaledObject.Name, Namespace: scaledObject.Namespace}, gomock.Any()).
 		DoAndReturn(func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			so := obj.(*kedav1alpha1.ScaledObject)
 			scaledObject.DeepCopyInto(so)
 			return nil
-		}).AnyTimes()
+		})
 
-	// Mock Deployment get
 	mockClient.EXPECT().Get(gomock.Any(), types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, gomock.Any()).
 		DoAndReturn(func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			d := obj.(*appsv1.Deployment)
 			deployment.DeepCopyInto(d)
 			return nil
-		}).AnyTimes()
+		})
 
 	// Test cache invalidation
 	err := sh.ClearScalersCache(context.TODO(), &scaledObject)
 	assert.Nil(t, err)
 
-	// Verify old cache is kept until new one is ready
-	newCache, exists := sh.scalerCaches[key]
-	assert.True(t, exists)
-	assert.NotNil(t, newCache)
-	assert.NotEqual(t, &oldCache, newCache) // Verify we got a new cache
+	// Verify cache is removed on success
+	_, exists := sh.scalerCaches[key]
+	assert.False(t, exists)
 
 	// Verify old cache is properly closed
 	scaler.EXPECT().Close(gomock.Any())
 	oldCache.Close(context.Background())
 }
-
 func TestGetScaledObjectMetrics_DirectCall(t *testing.T) {
 	scaledObjectName := testNameGlobal
 	scaledObjectNamespace := testNamespaceGlobal
