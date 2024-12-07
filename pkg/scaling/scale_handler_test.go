@@ -97,21 +97,19 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         scaledObjectsMetricCache: metricscache.NewMetricsCache(),
     }
 
-    // Mock the Get call with all required parameters
+    // Mock the Get call
     mockClient.EXPECT().
-        Get(gomock.Any(), gomock.Any(), gomock.Any()).
-        DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj *kedav1alpha1.ScaledObject) error {
-            obj.ObjectMeta = scaledObject.ObjectMeta
-            obj.Spec = scaledObject.Spec
-            return nil
-        }).AnyTimes()
+        Get(gomock.Any(), types.NamespacedName{Name: scaledObject.Name, Namespace: scaledObject.Namespace}, gomock.Any()).
+        SetArg(2, scaledObject).
+        Return(nil).
+        AnyTimes()
 
     // Test clearing cache
     err := sh.ClearScalersCache(context.TODO(), &scaledObject)
     assert.NoError(t, err)
 
     // Verify that old cache was cleared and new cache exists
-    cache, exists := sh.scalerCaches[scaledObject.GenerateIdentifier()]
+    cache, exists := h.scalerCaches[scaledObject.GenerateIdentifier()]
     assert.True(t, exists)
     assert.NotEqual(t, oldCache, cache)
 
