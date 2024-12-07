@@ -109,7 +109,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     assert.NoError(t, err)
 
     // Verify that old cache was cleared and new cache exists
-    cache, exists := h.scalerCaches[scaledObject.GenerateIdentifier()]
+    cache, exists := sh.scalerCaches[scaledObject.GenerateIdentifier()]
     assert.True(t, exists)
     assert.NotEqual(t, oldCache, cache)
 
