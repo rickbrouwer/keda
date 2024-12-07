@@ -68,6 +68,12 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
                 Name: "test",
             },
         },
+        Status: kedav1alpha1.ScaledObjectStatus{
+            ScaleTargetGVKR: &kedav1alpha1.GroupVersionKindResource{
+                Group: "apps",
+                Kind:  "Deployment",
+            },
+        },
     }
 
     // Create old scaler
@@ -82,8 +88,25 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         Recorder: recorder,
     }
 
-    // Mock client behavior for new cache creation
-    mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+    // Mock expectations for new cache creation
+    deployment := &appsv1.Deployment{
+        Spec: appsv1.DeploymentSpec{
+            Template: v1.PodTemplateSpec{
+                Spec: v1.PodSpec{
+                    Containers: []v1.Container{
+                        {
+                            Name: "test-container",
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    // Mock the necessary client calls
+    mockClient.EXPECT().Get(gomock.Any(), types.NamespacedName{Name: scaledObject.Spec.ScaleTargetRef.Name, Namespace: scaledObject.Namespace}, gomock.Any()).
+        SetArg(2, *deployment).
+        Return(nil)
     
     sh := scaleHandler{
         client:                   mockClient,
@@ -106,6 +129,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     assert.True(t, exists)
     assert.NotEqual(t, oldCache, cache)
 }
+
 func TestClearScalersCache_WithFailedNewCacheCreation(t *testing.T) {
     ctrl := gomock.NewController(t)
     recorder := record.NewFakeRecorder(1)
