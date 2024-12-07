@@ -99,8 +99,8 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
 
     // Mock the Get call with all required parameters
     mockClient.EXPECT().
-        Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-        DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj *kedav1alpha1.ScaledObject, opts ...client.GetOption) error {
+        Get(gomock.Any(), gomock.Any(), gomock.Any()).
+        DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj *kedav1alpha1.ScaledObject) error {
             obj.ObjectMeta = scaledObject.ObjectMeta
             obj.Spec = scaledObject.Spec
             return nil
