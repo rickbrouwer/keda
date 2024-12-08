@@ -59,6 +59,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     recorder := record.NewFakeRecorder(1)
     mockClient := mock_client.NewMockClient(ctrl)
 
+    // Maak een minimale maar valide ScaledObject
     scaledObject := kedav1alpha1.ScaledObject{
         ObjectMeta: metav1.ObjectMeta{
             Name:       "test",
@@ -70,11 +71,17 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
                 Name: "test-deployment",
             },
         },
+        Status: kedav1alpha1.ScaledObjectStatus{
+            ScaleTargetGVKR: &kedav1alpha1.GroupVersionKindResource{
+                Group: "apps",
+                Kind:  "Deployment",
+            },
+        },
     }
 
-    // Create old scaler
+    // Maak een oude cache met een mock scaler
     oldScaler := mock_scalers.NewMockScaler(ctrl)
-    oldScaler.EXPECT().Close(gomock.Any()).AnyTimes()
+    oldScaler.EXPECT().Close(gomock.Any()).Times(1)
     
     oldCache := &cache.ScalersCache{
         ScaledObject: &scaledObject,
@@ -85,18 +92,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         ScalableObjectGeneration: scaledObject.Generation,
     }
 
-    // Create new scaler for the new cache
-    newScaler := mock_scalers.NewMockScaler(ctrl)
-    newCache := &cache.ScalersCache{
-        ScaledObject: &scaledObject,
-        Scalers: []cache.ScalerBuilder{{
-            Scaler: newScaler,
-        }},
-        Recorder: recorder,
-        ScalableObjectGeneration: scaledObject.Generation,
-    }
-
-    sh := &scaleHandler{
+    sh := scaleHandler{
         client:                   mockClient,
         scaleLoopContexts:        &sync.Map{},
         globalHTTPTimeout:        time.Duration(1000),
@@ -108,25 +104,24 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         scaledObjectsMetricCache: metricscache.NewMetricsCache(),
     }
 
-    // Override the performGetScalersCache method
-    originalPerformGetScalersCache := performGetScalersCache
-    defer func() { performGetScalersCache = originalPerformGetScalersCache }()
-    
-    performGetScalersCache = func(ctx context.Context, key string, scalableObject interface{}, scalableObjectGeneration *int64, scalableObjectKind, scalableObjectNamespace, scalableObjectName string) (*cache.ScalersCache, error) {
-        return newCache, nil
-    }
+    // Mock minimale client calls voor een succesvolle cache creatie
+    mockClient.EXPECT().
+        Get(gomock.Any(), types.NamespacedName{Name: scaledObject.Name, Namespace: scaledObject.Namespace}, gomock.Any()).
+        DoAndReturn(func(_ context.Context, _ types.NamespacedName, obj *kedav1alpha1.ScaledObject) error {
+            scaledObject.DeepCopyInto(obj)
+            return nil
+        })
 
     // Test clearing cache
     err := sh.ClearScalersCache(context.TODO(), &scaledObject)
     assert.NoError(t, err)
 
-    // Verify that old cache was replaced by new cache
-    cache, exists := sh.scalerCaches[scaledObject.GenerateIdentifier()]
+    // Verify dat de oude cache is vervangen
+    newCache, exists := sh.scalerCaches[scaledObject.GenerateIdentifier()]
     assert.True(t, exists)
-    assert.Equal(t, newCache, cache)
-    assert.NotEqual(t, oldCache, cache)
+    assert.NotEqual(t, oldCache, newCache)
 
-    // Give some time for the async Close to be called
+    // Geef tijd voor de async Close
     time.Sleep(100 * time.Millisecond)
 }
 
