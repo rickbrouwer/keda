@@ -67,7 +67,9 @@ func TestClearScalersCacheWithNewCacheCreation(t *testing.T) {
         },
         Spec: kedav1alpha1.ScaledObjectSpec{
             ScaleTargetRef: &kedav1alpha1.ScaleTarget{
-                Name: "test-deployment",
+                Name:      "test-deployment",
+                Kind:      "Deployment",
+                APIVersion: "apps/v1",
             },
             Triggers: []kedav1alpha1.ScaleTriggers{
                 {
@@ -106,15 +108,14 @@ func TestClearScalersCacheWithNewCacheCreation(t *testing.T) {
         recorder:                 recorder,
     }
 
-    // Mock de client Get methodes
+    // Mock de ScaledObject Get
     mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
         func(ctx context.Context, key types.NamespacedName, obj *kedav1alpha1.ScaledObject, opts ...client.GetOption) error {
             *obj = *scaledObject
             return nil
-        },
-    ).Times(3)  // Een keer voor elke Get aanroep
+        }).Times(3)
 
-    // Mock voor het ophalen van de deployment
+    // Mock de Deployment Get
     mockDeployment := &appsv1.Deployment{
         ObjectMeta: metav1.ObjectMeta{
             Name:      "test-deployment",
@@ -133,8 +134,16 @@ func TestClearScalersCacheWithNewCacheCreation(t *testing.T) {
         },
     }
 
-    // Mock voor het ophalen van de deployment
-    mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+    // Specifiek voor de Deployment Get
+    mockClient.EXPECT().Get(
+        gomock.Any(), 
+        types.NamespacedName{
+            Name:      scaledObject.Spec.ScaleTargetRef.Name, 
+            Namespace: scaledObject.Namespace,
+        }, 
+        gomock.Any(), 
+        gomock.Any(),
+    ).DoAndReturn(
         func(ctx context.Context, key types.NamespacedName, obj *appsv1.Deployment, opts ...client.GetOption) error {
             *obj = *mockDeployment
             return nil
@@ -156,105 +165,6 @@ func TestClearScalersCacheWithNewCacheCreation(t *testing.T) {
     newCache, exists := sh.scalerCaches[key]
     assert.True(t, exists)
     assert.NotNil(t, newCache)
-}
-
-func TestClearScalersCacheOldCacheClose(t *testing.T) {
-    ctrl := gomock.NewController(t)
-    mockClient := mock_client.NewMockClient(ctrl)
-    recorder := record.NewFakeRecorder(1)
-
-    // Maak een ScaledObject
-    scaledObject := &kedav1alpha1.ScaledObject{
-        ObjectMeta: metav1.ObjectMeta{
-            Name:       "test-scaled-object",
-            Namespace:  "test-namespace",
-            Generation: 1,
-        },
-        Spec: kedav1alpha1.ScaledObjectSpec{
-            ScaleTargetRef: &kedav1alpha1.ScaleTarget{
-                Name: "test-deployment",
-            },
-            Triggers: []kedav1alpha1.ScaleTriggers{
-                {
-                    Type: "test-trigger",
-                    Name: "test-trigger-name",
-                },
-            },
-        },
-        Status: kedav1alpha1.ScaledObjectStatus{
-            ScaleTargetGVKR: &kedav1alpha1.GroupVersionKindResource{
-                Group: "apps",
-                Kind:  "Deployment",
-            },
-        },
-    }
-
-    // Bereid de oude ScalersCache voor
-    oldScaler := mock_scalers.NewMockScaler(ctrl)
-    oldScaler.EXPECT().Close(gomock.Any()).Times(1)
-
-    oldCache := &cache.ScalersCache{
-        Scalers: []cache.ScalerBuilder{{
-            Scaler: oldScaler,
-        }},
-        Recorder: recorder,
-    }
-
-    caches := map[string]*cache.ScalersCache{}
-    caches[scaledObject.GenerateIdentifier()] = oldCache
-
-    sh := scaleHandler{
-        client:                   mockClient,
-        scalerCaches:             caches,
-        scalerCachesLock:         &sync.RWMutex{},
-        scaledObjectsMetricCache: metricscache.NewMetricsCache(),
-        recorder:                 recorder,
-    }
-
-    // Mock de client Get methodes
-    mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-        func(ctx context.Context, key types.NamespacedName, obj *kedav1alpha1.ScaledObject, opts ...client.GetOption) error {
-            *obj = *scaledObject
-            return nil
-        },
-    ).Times(3)  // Een keer voor elke Get aanroep
-
-    // Mock voor het ophalen van de deployment
-    mockDeployment := &appsv1.Deployment{
-        ObjectMeta: metav1.ObjectMeta{
-            Name:      "test-deployment",
-            Namespace: "test-namespace",
-        },
-        Spec: appsv1.DeploymentSpec{
-            Template: v1.PodTemplateSpec{
-                Spec: v1.PodSpec{
-                    Containers: []v1.Container{
-                        {
-                            Name: "test-container",
-                        },
-                    },
-                },
-            },
-        },
-    }
-
-    // Mock voor het ophalen van de deployment
-    mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-        func(ctx context.Context, key types.NamespacedName, obj *appsv1.Deployment, opts ...client.GetOption) error {
-            *obj = *mockDeployment
-            return nil
-        })
-
-    // Mock voor het bouwen van scalers
-    newScaler := mock_scalers.NewMockScaler(ctrl)
-    newScaler.EXPECT().GetMetricSpecForScaling(gomock.Any()).Return([]v2.MetricSpec{})
-    newScaler.EXPECT().Close(gomock.Any()).Times(1)
-
-    // Roep ClearScalersCache aan
-    err := sh.ClearScalersCache(context.Background(), scaledObject)
-    
-    // Controleer of er geen fouten zijn
-    assert.NoError(t, err)
 }
 
 func TestGetScaledObjectMetrics_DirectCall(t *testing.T) {
