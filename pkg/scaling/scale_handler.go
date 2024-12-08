@@ -391,7 +391,7 @@ func (h *scaleHandler) performGetScalersCache(ctx context.Context, key string, s
 	return h.scalerCaches[key], nil
 }
 
-// ClearScalersCache invalidates chache for the input scalableObject
+// ClearScalersCache invalidates cache for the input scalableObject
 func (h *scaleHandler) ClearScalersCache(ctx context.Context, scalableObject interface{}) error {
 	withTriggers, err := kedav1alpha1.AsDuckWithTriggers(scalableObject)
 	if err != nil {
@@ -400,15 +400,25 @@ func (h *scaleHandler) ClearScalersCache(ctx context.Context, scalableObject int
 
 	key := withTriggers.GenerateIdentifier()
 
-	go h.scaledObjectsMetricCache.Delete(key)
+	// Build new cache before invalidating the old one
+	newCache, err := h.GetScalersCache(ctx, scalableObject)
+	if err != nil {
+		return err
+	}
 
 	h.scalerCachesLock.Lock()
-	defer h.scalerCachesLock.Unlock()
-	if cache, ok := h.scalerCaches[key]; ok {
-		log.V(1).WithValues("key", key).Info("Removing entry from ScalersCache")
-		cache.Close(ctx)
-		delete(h.scalerCaches, key)
-	}
+	oldCache := h.scalerCaches[key]
+	h.scalerCaches[key] = newCache
+	h.scalerCachesLock.Unlock()
+
+	// Close old cache in a goroutine to prevent blocking
+	go func() {
+		if oldCache != nil {
+			oldCache.Close(ctx)
+		}
+	}()
+
+	go h.scaledObjectsMetricCache.Delete(key)
 
 	return nil
 }
