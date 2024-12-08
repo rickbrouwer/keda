@@ -71,6 +71,12 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
             },
             Triggers: []kedav1alpha1.ScaleTriggers{}, // Lege triggers om buildScalers simpel te houden
         },
+        Status: kedav1alpha1.ScaledObjectStatus{
+            ScaleTargetGVKR: &kedav1alpha1.GroupVersionKindResource{
+                Group: "apps",
+                Kind:  "Deployment",
+            },
+        },
     }
 
     // Create old cache
@@ -83,6 +89,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
             Scaler: oldScaler,
         }},
         Recorder: recorder,
+        ScalableObjectGeneration: scaledObject.Generation,
     }
 
     sh := scaleHandler{
@@ -100,8 +107,10 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     // Mock the Get call
     mockClient.EXPECT().
         Get(gomock.Any(), types.NamespacedName{Name: scaledObject.Name, Namespace: scaledObject.Namespace}, gomock.Any()).
-        SetArg(2, scaledObject).
-        Return(nil).
+        DoAndReturn(func(_ context.Context, _ types.NamespacedName, obj *kedav1alpha1.ScaledObject) error {
+            scaledObject.DeepCopyInto(obj)
+            return nil
+        }).
         AnyTimes()
 
     // Test clearing cache
