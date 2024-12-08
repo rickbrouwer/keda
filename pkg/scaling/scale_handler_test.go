@@ -67,7 +67,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         },
         Spec: kedav1alpha1.ScaledObjectSpec{
             ScaleTargetRef: &kedav1alpha1.ScaleTarget{
-                Name: "test",
+                Name: "test-deployment",
             },
             Triggers: []kedav1alpha1.ScaleTriggers{}, // Lege triggers om buildScalers simpel te houden
         },
@@ -75,6 +75,25 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
             ScaleTargetGVKR: &kedav1alpha1.GroupVersionKindResource{
                 Group: "apps",
                 Kind:  "Deployment",
+            },
+        },
+    }
+
+    // Create deployment
+    deployment := &appsv1.Deployment{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      "test-deployment",
+            Namespace: "test",
+        },
+        Spec: appsv1.DeploymentSpec{
+            Template: v1.PodTemplateSpec{
+                Spec: v1.PodSpec{
+                    Containers: []v1.Container{
+                        {
+                            Name: "test-container",
+                        },
+                    },
+                },
             },
         },
     }
@@ -104,11 +123,20 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         scaledObjectsMetricCache: metricscache.NewMetricsCache(),
     }
 
-    // Mock the Get call
+    // Mock the ScaledObject Get call
     mockClient.EXPECT().
         Get(gomock.Any(), types.NamespacedName{Name: scaledObject.Name, Namespace: scaledObject.Namespace}, gomock.Any()).
         DoAndReturn(func(_ context.Context, _ types.NamespacedName, obj *kedav1alpha1.ScaledObject) error {
             scaledObject.DeepCopyInto(obj)
+            return nil
+        }).
+        AnyTimes()
+
+    // Mock the Deployment Get call
+    mockClient.EXPECT().
+        Get(gomock.Any(), types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, gomock.Any()).
+        DoAndReturn(func(_ context.Context, _ types.NamespacedName, obj *appsv1.Deployment) error {
+            deployment.DeepCopyInto(obj)
             return nil
         }).
         AnyTimes()
@@ -125,7 +153,6 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     // Give some time for the async Close to be called
     time.Sleep(100 * time.Millisecond)
 }
-
 func TestClearScalersCache_WithFailedNewCacheCreation(t *testing.T) {
     ctrl := gomock.NewController(t)
     recorder := record.NewFakeRecorder(1)
