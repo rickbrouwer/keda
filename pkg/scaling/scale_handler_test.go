@@ -59,7 +59,6 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
     recorder := record.NewFakeRecorder(1)
     mockClient := mock_client.NewMockClient(ctrl)
 
-    // Maak een minimale maar valide ScaledObject
     scaledObject := kedav1alpha1.ScaledObject{
         ObjectMeta: metav1.ObjectMeta{
             Name:       "test",
@@ -79,7 +78,7 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         },
     }
 
-    // Maak een oude cache met een mock scaler
+    // Make old cache with mock scaler
     oldScaler := mock_scalers.NewMockScaler(ctrl)
     oldScaler.EXPECT().Close(gomock.Any()).Times(1)
     
@@ -104,13 +103,27 @@ func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
         scaledObjectsMetricCache: metricscache.NewMetricsCache(),
     }
 
-    // Mock minimale client calls voor een succesvolle cache creatie
+    // Mock Get calls
     mockClient.EXPECT().
-        Get(gomock.Any(), types.NamespacedName{Name: scaledObject.Name, Namespace: scaledObject.Namespace}, gomock.Any()).
-        DoAndReturn(func(_ context.Context, _ types.NamespacedName, obj *kedav1alpha1.ScaledObject) error {
-            scaledObject.DeepCopyInto(obj)
+        Get(gomock.Any(), gomock.Any(), gomock.Any()).
+        DoAndReturn(func(_ context.Context, _ types.NamespacedName, obj runtime.Object) error {
+            switch o := obj.(type) {
+            case *kedav1alpha1.ScaledObject:
+                scaledObject.DeepCopyInto(o)
+            case *appsv1.Deployment:
+                deployment := &appsv1.Deployment{
+                    Spec: appsv1.DeploymentSpec{
+                        Template: v1.PodTemplateSpec{
+                            Spec: v1.PodSpec{
+                                Containers: []v1.Container{{Name: "test"}},
+                            },
+                        },
+                    },
+                }
+                deployment.DeepCopyInto(o)
+            }
             return nil
-        })
+        }).AnyTimes()
 
     // Test clearing cache
     err := sh.ClearScalersCache(context.TODO(), &scaledObject)
