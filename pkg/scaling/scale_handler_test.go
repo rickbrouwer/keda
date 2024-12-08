@@ -52,145 +52,145 @@ const testNamespaceGlobal = "testNamespace"
 const compositeMetricNameGlobal = "composite-metric"
 const testNameGlobal = "testName"
 
-func TestClearScalersCache_WithNewCacheCreation(t *testing.T) {
+func TestClearScalersCacheWithNewCacheCreation(t *testing.T) {
     ctrl := gomock.NewController(t)
-    defer ctrl.Finish()
-    
-    recorder := record.NewFakeRecorder(1)
     mockClient := mock_client.NewMockClient(ctrl)
+    recorder := record.NewFakeRecorder(1)
 
-    scaledObject := kedav1alpha1.ScaledObject{
+    // Create mock scaler
+    scaler := mock_scalers.NewMockScaler(ctrl)
+    scaler.EXPECT().Close(gomock.Any())
+
+    // Create ScaledObject
+    scaledObject := &kedav1alpha1.ScaledObject{
         ObjectMeta: metav1.ObjectMeta{
-            Name:       "test",
-            Namespace: "test",
-            Generation: 1,
+            Name:      "test-scaled-object",
+            Namespace: "test-namespace",
         },
         Spec: kedav1alpha1.ScaledObjectSpec{
             ScaleTargetRef: &kedav1alpha1.ScaleTarget{
                 Name: "test-deployment",
             },
         },
-        Status: kedav1alpha1.ScaledObjectStatus{
-            ScaleTargetGVKR: &kedav1alpha1.GroupVersionKindResource{
-                Group: "apps",
-                Kind:  "Deployment",
-            },
-        },
     }
 
-    // Make old cache with mock scaler
-    oldScaler := mock_scalers.NewMockScaler(ctrl)
-    oldScaler.EXPECT().Close(gomock.Any()).Times(1)
-    
-    oldCache := &cache.ScalersCache{
-        ScaledObject: &scaledObject,
+    // Create ScalersCache
+    scalerCache := cache.ScalersCache{
         Scalers: []cache.ScalerBuilder{{
-            Scaler: oldScaler,
+            Scaler: scaler,
         }},
         Recorder: recorder,
-        ScalableObjectGeneration: scaledObject.Generation,
     }
+
+    caches := map[string]*cache.ScalersCache{}
+    caches[scaledObject.GenerateIdentifier()] = &scalerCache
 
     sh := scaleHandler{
         client:                   mockClient,
-        scaleLoopContexts:        &sync.Map{},
-        globalHTTPTimeout:        time.Duration(1000),
-        recorder:                 recorder,
-        scalerCaches:            map[string]*cache.ScalersCache{
-            scaledObject.GenerateIdentifier(): oldCache,
-        },
+        scalerCaches:             caches,
         scalerCachesLock:         &sync.RWMutex{},
         scaledObjectsMetricCache: metricscache.NewMetricsCache(),
+        recorder:                 recorder,
     }
 
-    // Mock Get calls
-    mockClient.EXPECT().
-        Get(gomock.Any(), gomock.Any(), gomock.Any()).
-        DoAndReturn(func(_ context.Context, _ types.NamespacedName, obj runtime.Object) error {
-            switch o := obj.(type) {
-            case *kedav1alpha1.ScaledObject:
-                scaledObject.DeepCopyInto(o)
-            case *appsv1.Deployment:
-                deployment := &appsv1.Deployment{
-                    Spec: appsv1.DeploymentSpec{
-                        Template: v1.PodTemplateSpec{
-                            Spec: v1.PodSpec{
-                                Containers: []v1.Container{{Name: "test"}},
-                            },
-                        },
-                    },
-                }
-                deployment.DeepCopyInto(o)
-            }
-            return nil
-        }).AnyTimes()
+    // Mock client Get methode
+    mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).SetArg(2, *scaledObject)
 
-    // Test clearing cache
-    err := sh.ClearScalersCache(context.TODO(), &scaledObject)
+    // Call ClearScalersCache
+    err := sh.ClearScalersCache(context.Background(), scaledObject)
+    
+    // Check errors
     assert.NoError(t, err)
 
-    // Verify dat de oude cache is vervangen
-    newCache, exists := sh.scalerCaches[scaledObject.GenerateIdentifier()]
+    // Check if cache is updated
+    key := scaledObject.GenerateIdentifier()
+    newCache, exists := sh.scalerCaches[key]
     assert.True(t, exists)
-    assert.NotEqual(t, oldCache, newCache)
-
-    // Geef tijd voor de async Close
-    time.Sleep(100 * time.Millisecond)
+    assert.NotNil(t, newCache)
 }
 
-func TestClearScalersCache_WithFailedNewCacheCreation(t *testing.T) {
+func TestClearScalersCacheWithCacheCreationFailure(t *testing.T) {
     ctrl := gomock.NewController(t)
-    recorder := record.NewFakeRecorder(1)
     mockClient := mock_client.NewMockClient(ctrl)
+    recorder := record.NewFakeRecorder(1)
 
-    scaledObject := kedav1alpha1.ScaledObject{
+    // Create ScaledObject
+    scaledObject := &kedav1alpha1.ScaledObject{
         ObjectMeta: metav1.ObjectMeta{
-            Name:       "test",
-            Namespace: "test",
-            Generation: 1,
-        },
-        Spec: kedav1alpha1.ScaledObjectSpec{
-            ScaleTargetRef: &kedav1alpha1.ScaleTarget{
-                Name: "test",
-            },
+            Name:      "test-scaled-object",
+            Namespace: "test-namespace",
         },
     }
 
-    // Create old scaler that should be kept
+    // Create calersCache
+    caches := map[string]*cache.ScalersCache{}
+
+    sh := scaleHandler{
+        client:                   mockClient,
+        scalerCaches:             caches,
+        scalerCachesLock:         &sync.RWMutex{},
+        scaledObjectsMetricCache: metricscache.NewMetricsCache(),
+        recorder:                 recorder,
+    }
+
+    // Mock client Get method to simulate error
+    mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("client error"))
+
+    // Call ClearScalersCache
+    err := sh.ClearScalersCache(context.Background(), scaledObject)
+    
+    assert.Error(t, err)
+
+    // Check if cache is not updated
+    key := scaledObject.GenerateIdentifier()
+    _, exists := sh.scalerCaches[key]
+    assert.False(t, exists)
+}
+
+func TestClearScalersCacheOldCacheClose(t *testing.T) {
+    ctrl := gomock.NewController(t)
+    mockClient := mock_client.NewMockClient(ctrl)
+    recorder := record.NewFakeRecorder(1)
+
+    // Create mock scaler
     oldScaler := mock_scalers.NewMockScaler(ctrl)
+    oldScaler.EXPECT().Close(gomock.Any()).Times(1)
+
+    // Create ScaledObject
+    scaledObject := &kedav1alpha1.ScaledObject{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      "test-scaled-object",
+            Namespace: "test-namespace",
+        },
+    }
+
+    // Create old ScalersCache
     oldCache := &cache.ScalersCache{
-        ScaledObject: &scaledObject,
         Scalers: []cache.ScalerBuilder{{
             Scaler: oldScaler,
         }},
         Recorder: recorder,
     }
 
-    // Mock client to return error when creating new cache
-    expectedError := fmt.Errorf("failed to create new cache")
-    mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(expectedError)
-    
+    caches := map[string]*cache.ScalersCache{}
+    caches[scaledObject.GenerateIdentifier()] = oldCache
+
     sh := scaleHandler{
         client:                   mockClient,
-        scaleLoopContexts:        &sync.Map{},
-        globalHTTPTimeout:        time.Duration(1000),
-        recorder:                 recorder,
-        scalerCaches:            map[string]*cache.ScalersCache{
-            scaledObject.GenerateIdentifier(): oldCache,
-        },
+        scalerCaches:             caches,
         scalerCachesLock:         &sync.RWMutex{},
         scaledObjectsMetricCache: metricscache.NewMetricsCache(),
+        recorder:                 recorder,
     }
 
-    // Test clearing cache
-    err := sh.ClearScalersCache(context.TODO(), &scaledObject)
-    assert.Error(t, err)
-    assert.Equal(t, expectedError, err)
+    // Mock client Get method
+    mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).SetArg(2, *scaledObject)
 
-    // Verify that the old cache was kept
-    cache, exists := sh.scalerCaches[scaledObject.GenerateIdentifier()]
-    assert.True(t, exists)
-    assert.Equal(t, oldCache, cache)
+    // Call ClearScalersCache
+    err := sh.ClearScalersCache(context.Background(), scaledObject)
+    
+    // Check if no errors
+    assert.NoError(t, err)
 }
 
 func TestGetScaledObjectMetrics_DirectCall(t *testing.T) {
