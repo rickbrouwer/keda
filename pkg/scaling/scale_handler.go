@@ -391,7 +391,6 @@ func (h *scaleHandler) performGetScalersCache(ctx context.Context, key string, s
 	return h.scalerCaches[key], nil
 }
 
-// ClearScalersCache invalidates cache for the input scalableObject
 func (h *scaleHandler) ClearScalersCache(ctx context.Context, scalableObject interface{}) error {
     withTriggers, err := kedav1alpha1.AsDuckWithTriggers(scalableObject)
     if err != nil {
@@ -400,31 +399,39 @@ func (h *scaleHandler) ClearScalersCache(ctx context.Context, scalableObject int
 
     key := withTriggers.GenerateIdentifier()
 
-    // Start async deletion of metrics cache
     go h.scaledObjectsMetricCache.Delete(key)
-
-    // Create new cache before acquiring lock
-    newCache, err := h.performGetScalersCache(ctx, key, scalableObject, &withTriggers.Generation, "", "", "")
-    if err != nil {
-        log.Error(err, "Failed to build new cache", "key", key)
-        return err
-    }
 
     h.scalerCachesLock.Lock()
     defer h.scalerCachesLock.Unlock()
-
-    // Get old cache
-    oldCache, exists := h.scalerCaches[key]
     
-    // Update to new cache
-    h.scalerCaches[key] = newCache
-
-    // Close old cache asynchronously if it existed
-    if exists && oldCache != nil {
-        go func(cache *cache.ScalersCache) {
-            cache.Close(ctx)
-        }(oldCache)
+    oldCache, exists := h.scalerCaches[key]
+    if !exists {
+        // Als er geen cache is, hoeven we niets te doen
+        return nil
     }
+
+    // Als we alleen willen verwijderen (bijv. bij ScaledObject delete)
+    if scalableObject == nil {
+        log.V(1).WithValues("key", key).Info("Removing entry from ScalersCache")
+        oldCache.Close(ctx)
+        delete(h.scalerCaches, key)
+        return nil
+    }
+
+    // Normale cache refresh procedure
+    newCache, err := h.performGetScalersCache(ctx, key, scalableObject, &withTriggers.Generation, "", "", "")
+    if err != nil {
+        log.Error(err, "Failed to build new cache, keeping old cache", "key", key)
+        return err
+    }
+
+    // Oude cache asynchroon sluiten
+    go func(cache *cache.ScalersCache) {
+        cache.Close(ctx)
+    }(oldCache)
+
+    // Nieuwe cache opslaan
+    h.scalerCaches[key] = newCache
 
     return nil
 }
