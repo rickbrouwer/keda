@@ -231,6 +231,9 @@ spec:
                   replicas:
                     format: int32
                     type: integer
+                  useCurrentReplicas:
+                    type: boolean
+                    description: If true, fallback replicas will set to current replicas
                 required:
                 - failureThreshold
                 - replicas

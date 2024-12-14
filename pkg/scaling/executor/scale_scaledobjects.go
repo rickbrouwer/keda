@@ -231,11 +231,19 @@ func (e *scaleExecutor) RequestScale(ctx context.Context, scaledObject *kedav1al
 }
 
 func (e *scaleExecutor) doFallbackScaling(ctx context.Context, scaledObject *kedav1alpha1.ScaledObject, currentScale *autoscalingv1.Scale, logger logr.Logger, currentReplicas int32) {
-	_, err := e.updateScaleOnScaleTarget(ctx, scaledObject, currentScale, scaledObject.Spec.Fallback.Replicas)
+	var targetReplicas int32
+    
+	if scaledObject.Spec.Fallback.UseCurrentReplicas {
+		targetReplicas = currentReplicas
+	} else {
+		targetReplicas = scaledObject.Spec.Fallback.Replicas
+	}
+
+	_, err := e.updateScaleOnScaleTarget(ctx, scaledObject, currentScale, targetReplicas)
 	if err == nil {
-		logger.Info("Successfully set ScaleTarget replicas count to ScaledObject fallback.replicas",
+		logger.Info("Successfully set ScaleTarget replicas count to calculated fallback replicas",
 			"Original Replicas Count", currentReplicas,
-			"New Replicas Count", scaledObject.Spec.Fallback.Replicas)
+			"New Replicas Count", targetReplicas)
 	}
 	if e := e.setFallbackCondition(ctx, logger, scaledObject, metav1.ConditionTrue, "FallbackExists", "At least one trigger is falling back on this scaled object"); e != nil {
 		logger.Error(e, "Error setting fallback condition")

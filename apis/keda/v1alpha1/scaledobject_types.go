@@ -107,8 +107,9 @@ type ScaledObjectSpec struct {
 
 // Fallback is the spec for fallback options
 type Fallback struct {
-	FailureThreshold int32 `json:"failureThreshold"`
-	Replicas         int32 `json:"replicas"`
+	FailureThreshold   int32 `json:"failureThreshold"`
+	Replicas           int32 `json:"replicas"`
+	UseCurrentReplicas bool  `json:"useCurrentReplicas,omitempty"`
 }
 
 // AdvancedConfig specifies advance scaling options
