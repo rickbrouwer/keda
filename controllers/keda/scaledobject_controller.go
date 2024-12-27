@@ -252,6 +252,8 @@ func (r *ScaledObjectReconciler) reconcileScaledObject(ctx context.Context, logg
 		}
 	} else if conditions.GetPausedCondition().Status == metav1.ConditionTrue {
 		conditions.SetPausedCondition(metav1.ConditionFalse, "ScaledObjectUnpaused", "pause annotation removed for ScaledObject")
+	} else if conditions.GetPausedCondition().Status != metav1.ConditionFalse {
+		conditions.SetPausedCondition(metav1.ConditionFalse, "ScaledObjectUnpaused", "no pause annotation for ScaledObject")
 	}
 
 	// Check scale target Name is specified
