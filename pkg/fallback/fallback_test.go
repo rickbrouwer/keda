@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"go.uber.org/mock/gomock"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	v2 "k8s.io/api/autoscaling/v2"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,20 +41,21 @@ const metricName = "some_metric_name"
 
 func TestFallback(t *testing.T) {
 	RegisterFailHandler(Fail)
-
 	RunSpecs(t, "Controller Suite")
 }
 
 var _ = Describe("fallback", func() {
 	var (
-		client *mock_client.MockClient
-		scaler *mock_scalers.MockScaler
-		ctrl   *gomock.Controller
+		client      *mock_client.MockClient
+		scaleClient *mock_client.MockScalesGetter
+		scaler      *mock_scalers.MockScaler
+		ctrl        *gomock.Controller
 	)
 
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
 		client = mock_client.NewMockClient(ctrl)
+		scaleClient = mock_client.NewMockScalesGetter(ctrl)
 		scaler = mock_scalers.NewMockScaler(ctrl)
 	})
 
@@ -62,14 +64,13 @@ var _ = Describe("fallback", func() {
 	})
 
 	It("should return the expected metric when fallback is disabled", func() {
-
 		expectedMetricValue := float64(5)
 		primeGetMetrics(scaler, expectedMetricValue)
 		so := buildScaledObject(nil, nil)
 		metricSpec := createMetricSpec(3)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		metrics, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		metrics, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 
 		Expect(err).ToNot(HaveOccurred())
 		value := metrics[0].Value.AsApproximateFloat64()
@@ -100,14 +101,13 @@ var _ = Describe("fallback", func() {
 		expectStatusPatch(ctrl, client)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		metrics, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		metrics, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 
 		Expect(err).ToNot(HaveOccurred())
 		value := metrics[0].Value.AsApproximateFloat64()
 		Expect(value).Should(Equal(expectedMetricValue))
 		Expect(so.Status.Health[metricName]).To(haveFailureAndStatus(0, kedav1alpha1.HealthStatusHappy))
 	})
-
 	It("should not reset the health status when fallback is not enabled", func() {
 		expectedMetricValue := float64(6)
 		startingNumberOfFailures := int32(5)
@@ -129,7 +129,7 @@ var _ = Describe("fallback", func() {
 		expectNoStatusPatch(ctrl)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		metrics, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		metrics, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 
 		Expect(err).ToNot(HaveOccurred())
 		value := metrics[0].Value.AsApproximateFloat64()
@@ -145,7 +145,7 @@ var _ = Describe("fallback", func() {
 		expectNoStatusPatch(ctrl)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		_, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		_, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 
 		Expect(err).ShouldNot(BeNil())
 		Expect(err.Error()).Should(Equal("some error"))
@@ -174,7 +174,7 @@ var _ = Describe("fallback", func() {
 		expectStatusPatch(ctrl, client)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		_, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		_, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 
 		Expect(err).ShouldNot(BeNil())
 		Expect(err.Error()).Should(Equal("some error"))
@@ -200,11 +200,23 @@ var _ = Describe("fallback", func() {
 				},
 			},
 		)
+
+		// Mock scale subresource
+		mockScale := &autoscalingv1.Scale{
+			Spec: autoscalingv1.ScaleSpec{
+				Replicas: 5,
+			},
+		}
+		
+		scaleNamespacer := mock_client.NewMockScaleNamespacer(ctrl)
+		scaleClient.EXPECT().Scales(so.Namespace).Return(scaleNamespacer)
+		scaleNamespacer.EXPECT().Get(gomock.Any(), so.Status.ScaleTargetGVKR.GroupResource(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
+
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		metrics, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		metrics, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 
 		Expect(err).ToNot(HaveOccurred())
 		value := metrics[0].Value.AsApproximateFloat64()
@@ -253,6 +265,18 @@ var _ = Describe("fallback", func() {
 				},
 			},
 		)
+
+		// Mock scale subresource
+		mockScale := &autoscalingv1.Scale{
+			Spec: autoscalingv1.ScaleSpec{
+				Replicas: 5,
+			},
+		}
+		
+		scaleNamespacer := mock_client.NewMockScaleNamespacer(ctrl)
+		scaleClient.EXPECT().Scales(so.Namespace).Return(scaleNamespacer)
+		scaleNamespacer.EXPECT().Get(gomock.Any(), so.Status.ScaleTargetGVKR.GroupResource(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
+
 		metricSpec := createMetricSpec(10)
 
 		statusWriter := mock_client.NewMockStatusWriter(ctrl)
@@ -260,7 +284,7 @@ var _ = Describe("fallback", func() {
 		client.EXPECT().Status().Return(statusWriter)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		metrics, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		metrics, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 
 		Expect(err).ToNot(HaveOccurred())
 		value := metrics[0].Value.AsApproximateFloat64()
@@ -289,7 +313,7 @@ var _ = Describe("fallback", func() {
 		metricSpec := createMetricSpec(10)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		_, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		_, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 
 		Expect(err).ShouldNot(BeNil())
 		Expect(err.Error()).Should(Equal("some error"))
@@ -319,11 +343,23 @@ var _ = Describe("fallback", func() {
 				},
 			},
 		)
+
+		// Mock scale subresource
+		mockScale := &autoscalingv1.Scale{
+			Spec: autoscalingv1.ScaleSpec{
+				Replicas: 5,
+			},
+		}
+		
+		scaleNamespacer := mock_client.NewMockScaleNamespacer(ctrl)
+		scaleClient.EXPECT().Scales(so.Namespace).Return(scaleNamespacer)
+		scaleNamespacer.EXPECT().Get(gomock.Any(), so.Status.ScaleTargetGVKR.GroupResource(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
+
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		_, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		_, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 		Expect(err).ToNot(HaveOccurred())
 		condition := so.Status.Conditions.GetFallbackCondition()
 		Expect(condition.IsTrue()).Should(BeTrue())
@@ -356,14 +392,13 @@ var _ = Describe("fallback", func() {
 		metricSpec := createMetricSpec(10)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
-		_, _, err = GetMetricsWithFallback(context.Background(), client, metrics, err, metricName, so, metricSpec)
+		_, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
 		Expect(err).ShouldNot(BeNil())
 		Expect(err.Error()).Should(Equal("some error"))
 		condition := so.Status.Conditions.GetFallbackCondition()
 		Expect(condition.IsTrue()).Should(BeFalse())
 	})
 })
-
 func haveFailureAndStatus(numberOfFailures int, status kedav1alpha1.HealthStatusType) types.GomegaMatcher {
 	return &healthStatusMatcher{numberOfFailures: numberOfFailures, status: status}
 }
