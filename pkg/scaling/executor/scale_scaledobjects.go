@@ -215,7 +215,7 @@ func (e *scaleExecutor) doFallbackScaling(ctx context.Context, scaledObject *ked
 
 	_, err := e.updateScaleOnScaleTarget(ctx, scaledObject, currentScale, targetReplicas)
 	if err == nil {
-		logger.Info("Successfully set ScaleTarget replicas count to ScaledObject fallback.replicas", "Original Replicas Count", currentReplicas, "New Replicas Count", targetReplicas)
+		logger.Info("Successfully set ScaleTarget replicas count to calculated fallback replicas", "Original Replicas Count", currentReplicas, "New Replicas Count", targetReplicas)
 	}
 	if e := e.setFallbackCondition(ctx, logger, scaledObject, metav1.ConditionTrue, "FallbackExists", "At least one trigger is falling back on this scaled object"); e != nil {
 		logger.Error(e, "Error setting fallback condition")
