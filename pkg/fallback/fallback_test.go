@@ -143,7 +143,7 @@ var _ = Describe("fallback", func() {
 		metricSpec := createMetricSpec(3)
 		expectNoStatusPatch(ctrl)
 
-		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error"))
+		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error")).Times(2)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
 		_, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
@@ -172,7 +172,7 @@ var _ = Describe("fallback", func() {
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
 
-		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error"))
+		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error")).Times(2)
 
 		metrics, _, err := scaler.GetMetricsAndActivity(context.Background(), metricName)
 		_, _, err = GetMetricsWithFallback(context.Background(), client, scaleClient, metrics, err, metricName, so, metricSpec)
@@ -220,7 +220,7 @@ var _ = Describe("fallback", func() {
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
 		mockScaleInterface.EXPECT().Get(gomock.Any(), gomock.Any(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
 
-		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error"))
+		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error")).Times(2)
 
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
@@ -294,7 +294,7 @@ var _ = Describe("fallback", func() {
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
 		mockScaleInterface.EXPECT().Get(gomock.Any(), gomock.Any(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
 
-		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error"))
+		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error")).Times(2)
 
 		metricSpec := createMetricSpec(10)
 
@@ -354,7 +354,7 @@ var _ = Describe("fallback", func() {
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
 		mockScaleInterface.EXPECT().Get(gomock.Any(), gomock.Any(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
 
-		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error"))
+		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error")).Times(2)
 
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
@@ -390,7 +390,7 @@ var _ = Describe("fallback", func() {
 			},
 		)
 
-		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error"))
+		scaler.EXPECT().GetMetricsAndActivity(gomock.Any(), gomock.Eq(metricName)).Return(nil, false, errors.New("some error")).Times(2)
 
 		metricSpec := createMetricSpec(10)
 
