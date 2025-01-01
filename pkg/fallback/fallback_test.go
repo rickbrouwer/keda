@@ -34,6 +34,7 @@ import (
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	"github.com/kedacore/keda/v2/pkg/mock/mock_client"
+	mock_scale "github.com/kedacore/keda/v2/pkg/mock/mock_scale"
 	mock_scalers "github.com/kedacore/keda/v2/pkg/mock/mock_scaler"
 )
 
@@ -208,10 +209,14 @@ var _ = Describe("fallback", func() {
 			},
 		}
 		
-		scaleNamespacer := mock_client.NewMockScaleNamespacer(ctrl)
-		scaleClient.EXPECT().Scales(so.Namespace).Return(scaleNamespacer)
-		scaleNamespacer.EXPECT().Get(gomock.Any(), so.Status.ScaleTargetGVKR.GroupResource(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
-
+		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
+		scaleClient.EXPECT().
+			Scales(so.Namespace).
+			Return(mockScaleInterface)
+		mockScaleInterface.EXPECT().
+			Get(gomock.Any(), so.Status.ScaleTargetGVKR.GroupResource(), so.Spec.ScaleTargetRef.Name, gomock.Any()).
+			Return(mockScale, nil)
+		
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
 
