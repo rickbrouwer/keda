@@ -56,7 +56,7 @@ var _ = Describe("fallback", func() {
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
 		client = mock_client.NewMockClient(ctrl)
-		scaleClient = mock_scale.NewMockScalesGetter(ctrl) 
+		scaleClient = mock_scale.NewMockScalesGetter(ctrl)
 		scaler = mock_scalers.NewMockScaler(ctrl)
 	})
 
@@ -209,10 +209,19 @@ var _ = Describe("fallback", func() {
 			},
 		}
 		
+		// Mock client.Get call
+		client.EXPECT().
+			Get(
+				gomock.Any(),
+				gomock.Any(),
+				gomock.Any(),
+			).
+			Return(nil, fmt.Errorf("not found"))
+		
 		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
-		mockScaleInterface.EXPECT().Get(gomock.Any(),gomock.Any(),so.Spec.ScaleTargetRef.Name,gomock.Any(),).Return(mockScale, nil)
-		
+		mockScaleInterface.EXPECT().Get(gomock.Any(), gomock.Any(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
+
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
 
@@ -274,9 +283,18 @@ var _ = Describe("fallback", func() {
 			},
 		}
 		
+		// Mock client.Get call
+		client.EXPECT().
+			Get(
+				gomock.Any(),
+				gomock.Any(),
+				gomock.Any(),
+			).
+			Return(nil, fmt.Errorf("not found"))
+		
 		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
-		mockScaleInterface.EXPECT().Get(gomock.Any(),gomock.Any(),so.Spec.ScaleTargetRef.Name,gomock.Any(),).Return(mockScale, nil)
+		mockScaleInterface.EXPECT().Get(gomock.Any(), gomock.Any(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
 
 		metricSpec := createMetricSpec(10)
 
@@ -352,9 +370,18 @@ var _ = Describe("fallback", func() {
 			},
 		}
 		
+		// Mock client.Get call
+		client.EXPECT().
+			Get(
+				gomock.Any(),
+				gomock.Any(),
+				gomock.Any(),
+			).
+			Return(nil, fmt.Errorf("not found"))
+		
 		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
-		mockScaleInterface.EXPECT().Get(gomock.Any(),gomock.Any(),so.Spec.ScaleTargetRef.Name,gomock.Any(),).Return(mockScale, nil)
+		mockScaleInterface.EXPECT().Get(gomock.Any(), gomock.Any(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
 
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
@@ -400,6 +427,7 @@ var _ = Describe("fallback", func() {
 		Expect(condition.IsTrue()).Should(BeFalse())
 	})
 })
+
 func haveFailureAndStatus(numberOfFailures int, status kedav1alpha1.HealthStatusType) types.GomegaMatcher {
 	return &healthStatusMatcher{numberOfFailures: numberOfFailures, status: status}
 }
