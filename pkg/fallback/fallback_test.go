@@ -475,6 +475,11 @@ func buildScaledObject(fallbackConfig *kedav1alpha1.Fallback, status *kedav1alph
 
 	scaledObject.Status.Conditions = *kedav1alpha1.GetInitializedConditions()
 
+	scaledObject.Status.ScaleTargetGVKR = &kedav1alpha1.GroupVersionKindResource{
+		Group: "apps",
+		Kind:  "Deployment",
+	}
+
 	return scaledObject
 }
 
