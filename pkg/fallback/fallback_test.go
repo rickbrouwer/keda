@@ -211,7 +211,7 @@ var _ = Describe("fallback", func() {
 		
 		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
-		mockScaleInterface.EXPECT().Get(gomock.Any(), so.Status.ScaleTargetGVKR.GroupResource(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
+		mockScaleInterface.EXPECT().Get(gomock.Any(),gomock.Any(),so.Spec.ScaleTargetRef.Name,gomock.Any(),).Return(mockScale, nil)
 		
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
@@ -276,7 +276,7 @@ var _ = Describe("fallback", func() {
 		
 		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
-		mockScaleInterface.EXPECT().Get(gomock.Any(), so.Status.ScaleTargetGVKR.GroupResource(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
+		mockScaleInterface.EXPECT().Get(gomock.Any(),gomock.Any(),so.Spec.ScaleTargetRef.Name,gomock.Any(),).Return(mockScale, nil)
 
 		metricSpec := createMetricSpec(10)
 
@@ -354,7 +354,7 @@ var _ = Describe("fallback", func() {
 		
 		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
-		mockScaleInterface.EXPECT().Get(gomock.Any(), so.Status.ScaleTargetGVKR.GroupResource(), so.Spec.ScaleTargetRef.Name, gomock.Any()).Return(mockScale, nil)
+		mockScaleInterface.EXPECT().Get(gomock.Any(),gomock.Any(),so.Spec.ScaleTargetRef.Name,gomock.Any(),).Return(mockScale, nil)
 
 		metricSpec := createMetricSpec(10)
 		expectStatusPatch(ctrl, client)
