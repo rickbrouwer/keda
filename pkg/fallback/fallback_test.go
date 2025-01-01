@@ -216,7 +216,7 @@ var _ = Describe("fallback", func() {
 				gomock.Any(),
 				gomock.Any(),
 			).
-			Return(nil, fmt.Errorf("not found"))
+			Return(fmt.Errorf("not found"))
 		
 		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
@@ -290,7 +290,7 @@ var _ = Describe("fallback", func() {
 				gomock.Any(),
 				gomock.Any(),
 			).
-			Return(nil, fmt.Errorf("not found"))
+			Return(fmt.Errorf("not found"))
 		
 		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
@@ -377,7 +377,7 @@ var _ = Describe("fallback", func() {
 				gomock.Any(),
 				gomock.Any(),
 			).
-			Return(nil, fmt.Errorf("not found"))
+			Return(fmt.Errorf("not found"))
 		
 		mockScaleInterface := mock_scale.NewMockScaleInterface(ctrl)
 		scaleClient.EXPECT().Scales(so.Namespace).Return(mockScaleInterface)
