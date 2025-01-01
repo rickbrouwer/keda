@@ -47,7 +47,7 @@ func TestFallback(t *testing.T) {
 var _ = Describe("fallback", func() {
 	var (
 		client      *mock_client.MockClient
-		scaleClient *mock_client.MockScalesGetter
+		scaleClient *mock_scale.MockScalesGetter
 		scaler      *mock_scalers.MockScaler
 		ctrl        *gomock.Controller
 	)
@@ -55,7 +55,7 @@ var _ = Describe("fallback", func() {
 	BeforeEach(func() {
 		ctrl = gomock.NewController(GinkgoT())
 		client = mock_client.NewMockClient(ctrl)
-		scaleClient = mock_client.NewMockScalesGetter(ctrl)
+		scaleClient = mock_scale.NewMockScalesGetter(ctrl) 
 		scaler = mock_scalers.NewMockScaler(ctrl)
 	})
 
