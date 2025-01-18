@@ -164,9 +164,16 @@ func (e *scaleExecutor) RequestScale(ctx context.Context, scaledObject *kedav1al
 			// there are no active triggers, but a scaler responded with an error
 			// AND
 			// there is a fallback replicas count defined
-
-			// Scale to the fallback replicas count
-			e.doFallbackScaling(ctx, scaledObject, currentScale, logger, currentReplicas)
+			// check health status before scaling
+			status := scaledObject.Status
+			if status.Health != nil {
+				for _, health := range status.Health {
+					if health.Status == kedav1alpha1.HealthStatusFailing && 
+						*health.NumberOfFailures > scaledObject.Spec.Fallback.FailureThreshold {
+							e.doFallbackScaling(ctx, scaledObject, currentScale, logger, currentReplicas)
+					}
+				}
+			}
 		case isError && scaledObject.Spec.Fallback == nil:
 			// there are no active triggers, but a scaler responded with an error
 			// AND
