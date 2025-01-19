@@ -18,78 +18,97 @@ package fallback
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strconv"
 
+	"github.com/go-logr/logr"
 	v2 "k8s.io/api/autoscaling/v2"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/scale"
 	"k8s.io/metrics/pkg/apis/external_metrics"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
+	"github.com/kedacore/keda/v2/pkg/scaling/resolver"
 )
 
 var log = logf.Log.WithName("fallback")
 
-func isFallbackEnabled(scaledObject *kedav1alpha1.ScaledObject, metricSpec v2.MetricSpec) bool {
+type FallbackResult struct {
+	ShouldFallback   bool
+	Replicas         int32
+	Metrics          []external_metrics.ExternalMetricValue
+	OriginalError    error
+}
+
+func HandleFallback(ctx context.Context, client runtimeclient.Client, scaleClient scale.ScalesGetter, logger logr.Logger,
+	scaledObject *kedav1alpha1.ScaledObject, isError bool, metricSpec v2.MetricSpec) (*FallbackResult, error) {
+	if !shouldEnableFallback(scaledObject, metricSpec) {
+		return &FallbackResult{ShouldFallback: false}, nil
+	}
+
+	status := scaledObject.Status.DeepCopy()
+	initHealthStatus(status)
+
+	// Update health status for all metrics
+	for metricName := range status.Health {
+		healthStatus := getHealthStatus(status, metricName)
+		if isError {
+			healthStatus.Status = kedav1alpha1.HealthStatusFailing
+			*healthStatus.NumberOfFailures++
+		} else {
+			healthStatus.Status = kedav1alpha1.HealthStatusHappy
+			zero := int32(0)
+			healthStatus.NumberOfFailures = &zero
+		}
+		status.Health[metricName] = *healthStatus
+	}
+
+	updateStatus(ctx, client, scaledObject, status, metricSpec)
+
+	if !hasExceededFailureThreshold(status, scaledObject.Spec.Fallback.FailureThreshold) {
+		return &FallbackResult{ShouldFallback: false}, nil
+	}
+
+	currentReplicas, err := resolver.GetCurrentReplicas(ctx, client, scaleClient, scaledObject)
+	if err != nil {
+		return nil, fmt.Errorf("error getting current replicas: %w", err)
+	}
+
+	fallbackReplicas := calculateFallbackReplicas(scaledObject, currentReplicas)
+	fallbackMetrics := calculateFallbackMetrics(scaledObject, metricSpec, fallbackReplicas)
+
+	logger.Info("Using fallback configuration",
+		"scaledObject.Namespace", scaledObject.Namespace,
+		"scaledObject.Name", scaledObject.Name,
+		"fallback.behavior", scaledObject.Spec.Fallback.Behavior,
+		"fallback.replicas", fallbackReplicas,
+		"currentReplicas", currentReplicas)
+
+	return &FallbackResult{
+		ShouldFallback: true,
+		Replicas:       fallbackReplicas,
+		Metrics:        fallbackMetrics,
+		OriginalError:  err,
+	}, nil
+}
+
+func shouldEnableFallback(scaledObject *kedav1alpha1.ScaledObject, metricSpec v2.MetricSpec) bool {
 	if scaledObject.Spec.Fallback == nil {
 		return false
 	}
 
 	if metricSpec.External.Target.Type != v2.AverageValueMetricType {
-		log.V(0).Info("Fallback can only be enabled for triggers with metric of type AverageValue", "scaledObject.Namespace", scaledObject.Namespace, "scaledObject.Name", scaledObject.Name)
+		log.V(0).Info("Fallback can only be enabled for triggers with metric of type AverageValue",
+			"scaledObject.Namespace", scaledObject.Namespace,
+			"scaledObject.Name", scaledObject.Name)
 		return false
 	}
 
-	return true
-}
-
-func GetMetricsWithFallback(ctx context.Context, client runtimeclient.Client, metrics []external_metrics.ExternalMetricValue, suppressedError error, metricName string, scaledObject *kedav1alpha1.ScaledObject, metricSpec v2.MetricSpec) ([]external_metrics.ExternalMetricValue, bool, error) {
-	status := scaledObject.Status.DeepCopy()
-
-	initHealthStatus(status)
-	healthStatus := getHealthStatus(status, metricName)
-
-	if suppressedError == nil {
-		zero := int32(0)
-		healthStatus.NumberOfFailures = &zero
-		healthStatus.Status = kedav1alpha1.HealthStatusHappy
-		status.Health[metricName] = *healthStatus
-
-		updateStatus(ctx, client, scaledObject, status, metricSpec)
-
-		return metrics, false, nil
-	}
-
-	healthStatus.Status = kedav1alpha1.HealthStatusFailing
-	*healthStatus.NumberOfFailures++
-	status.Health[metricName] = *healthStatus
-
-	updateStatus(ctx, client, scaledObject, status, metricSpec)
-
-	switch {
-	case !isFallbackEnabled(scaledObject, metricSpec):
-		return nil, false, suppressedError
-	case !HasValidFallback(scaledObject):
-		log.Info("Failed to validate ScaledObject Spec. Please check that parameters are positive integers", "scaledObject.Namespace", scaledObject.Namespace, "scaledObject.Name", scaledObject.Name)
-		return nil, false, suppressedError
-	case *healthStatus.NumberOfFailures > scaledObject.Spec.Fallback.FailureThreshold:
-		return doFallback(scaledObject, metricSpec, metricName, suppressedError), true, nil
-	default:
-		return nil, false, suppressedError
-	}
-}
-
-func fallbackExistsInScaledObject(scaledObject *kedav1alpha1.ScaledObject) bool {
-	for _, element := range scaledObject.Status.Health {
-		if element.Status == kedav1alpha1.HealthStatusFailing && *element.NumberOfFailures > scaledObject.Spec.Fallback.FailureThreshold {
-			return true
-		}
-	}
-
-	return false
+	return HasValidFallback(scaledObject)
 }
 
 func HasValidFallback(scaledObject *kedav1alpha1.ScaledObject) bool {
@@ -103,11 +122,33 @@ func HasValidFallback(scaledObject *kedav1alpha1.ScaledObject) bool {
 		modifierChecking
 }
 
-func doFallback(scaledObject *kedav1alpha1.ScaledObject, metricSpec v2.MetricSpec, metricName string, suppressedError error) []external_metrics.ExternalMetricValue {
-	replicas := int64(scaledObject.Spec.Fallback.Replicas)
+func hasExceededFailureThreshold(status *kedav1alpha1.ScaledObjectStatus, threshold int32) bool {
+	for _, health := range status.Health {
+		if health.Status == kedav1alpha1.HealthStatusFailing && *health.NumberOfFailures > threshold {
+			return true
+		}
+	}
+	return false
+}
+
+func calculateFallbackReplicas(scaledObject *kedav1alpha1.ScaledObject, currentReplicas int32) int32 {
+	fallbackReplicas := scaledObject.Spec.Fallback.Replicas
+
+	if scaledObject.Spec.Fallback.Behavior == kedav1alpha1.FallbackBehaviorUseCurrentReplicasAsMin {
+		if currentReplicas > fallbackReplicas {
+			return currentReplicas
+		}
+	}
+	return fallbackReplicas
+}
+
+func calculateFallbackMetrics(scaledObject *kedav1alpha1.ScaledObject, metricSpec v2.MetricSpec, replicas int32) []external_metrics.ExternalMetricValue {
 	var normalisationValue int64
+	var metricName string
+
 	if !scaledObject.IsUsingModifiers() {
 		normalisationValue = int64(metricSpec.External.Target.AverageValue.AsApproximateFloat64())
+		metricName = metricSpec.External.Metric.Name
 	} else {
 		value, _ := strconv.ParseInt(scaledObject.Spec.Advanced.ScalingModifiers.Target, 10, 64)
 		normalisationValue = value
@@ -116,47 +157,43 @@ func doFallback(scaledObject *kedav1alpha1.ScaledObject, metricSpec v2.MetricSpe
 
 	metric := external_metrics.ExternalMetricValue{
 		MetricName: metricName,
-		Value:      *resource.NewMilliQuantity(normalisationValue*1000*replicas, resource.DecimalSI),
+		Value:      *resource.NewMilliQuantity(normalisationValue*1000*int64(replicas), resource.DecimalSI),
 		Timestamp:  metav1.Now(),
 	}
-	fallbackMetrics := []external_metrics.ExternalMetricValue{metric}
 
-	log.Info("Suppressing error, falling back to fallback.replicas", "scaledObject.Namespace", scaledObject.Namespace, "scaledObject.Name", scaledObject.Name, "suppressedError", suppressedError, "fallback.replicas", replicas)
-	return fallbackMetrics
+	return []external_metrics.ExternalMetricValue{metric}
 }
 
-func updateStatus(ctx context.Context, client runtimeclient.Client, scaledObject *kedav1alpha1.ScaledObject, status *kedav1alpha1.ScaledObjectStatus, metricSpec v2.MetricSpec) {
+func updateStatus(ctx context.Context, client runtimeclient.Client, scaledObject *kedav1alpha1.ScaledObject,
+	status *kedav1alpha1.ScaledObjectStatus, metricSpec v2.MetricSpec) {
 	patch := runtimeclient.MergeFrom(scaledObject.DeepCopy())
 
-	if !isFallbackEnabled(scaledObject, metricSpec) || !HasValidFallback(scaledObject) {
-		log.V(1).Info("Fallback is not enabled, hence skipping the health update to the scaledobject", "scaledObject.Namespace", scaledObject.Namespace, "scaledObject.Name", scaledObject.Name)
-		return
-	}
-
-	if fallbackExistsInScaledObject(scaledObject) {
-		status.Conditions.SetFallbackCondition(metav1.ConditionTrue, "FallbackExists", "At least one trigger is falling back on this scaled object")
+	if hasExceededFailureThreshold(status, scaledObject.Spec.Fallback.FailureThreshold) {
+		status.Conditions.SetFallbackCondition(metav1.ConditionTrue, "FallbackExists",
+			"At least one trigger is falling back on this scaled object")
 	} else {
-		status.Conditions.SetFallbackCondition(metav1.ConditionFalse, "NoFallbackFound", "No fallbacks are active on this scaled object")
+		status.Conditions.SetFallbackCondition(metav1.ConditionFalse, "NoFallbackFound",
+			"No fallbacks are active on this scaled object")
 	}
 
-	// Update status only if it has changed
 	if !reflect.DeepEqual(scaledObject.Status, *status) {
 		scaledObject.Status = *status
 		err := client.Status().Patch(ctx, scaledObject, patch)
 		if err != nil {
-			log.Error(err, "failed to patch ScaledObjects Status", "scaledObject.Namespace", scaledObject.Namespace, "scaledObject.Name", scaledObject.Name)
+			log.Error(err, "failed to patch ScaledObjects Status",
+				"scaledObject.Namespace", scaledObject.Namespace,
+				"scaledObject.Name", scaledObject.Name)
 		}
 	}
 }
 
 func getHealthStatus(status *kedav1alpha1.ScaledObjectStatus, metricName string) *kedav1alpha1.HealthStatus {
-	// Get health status for a specific metric
 	_, healthStatusExists := status.Health[metricName]
 	if !healthStatusExists {
 		zero := int32(0)
 		healthStatus := kedav1alpha1.HealthStatus{
 			NumberOfFailures: &zero,
-			Status:           kedav1alpha1.HealthStatusHappy,
+			Status:          kedav1alpha1.HealthStatusHappy,
 		}
 		status.Health[metricName] = healthStatus
 	}
@@ -165,7 +202,6 @@ func getHealthStatus(status *kedav1alpha1.ScaledObjectStatus, metricName string)
 }
 
 func initHealthStatus(status *kedav1alpha1.ScaledObjectStatus) {
-	// Init health status if missing
 	if status.Health == nil {
 		status.Health = make(map[string]kedav1alpha1.HealthStatus)
 	}
