@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/go-logr/logr"
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
@@ -134,16 +135,48 @@ func TestAzBlobGetMetricSpecForScaling(t *testing.T) {
 	}
 }
 
+type MockBlobResponse struct {
+	Segment struct {
+		BlobItems []azblob.BlobItem
+	}
+}
+
+// MockFlatPager implementeert de ListBlobsFlatPager interface
+type MockFlatPager struct {
+	items    []string
+	position int
+}
+
+func (p *MockFlatPager) More() bool {
+	return p.position < len(p.items)
+}
+
+func (p *MockFlatPager) NextPage(ctx context.Context) (*azblob.ListBlobsFlatResponse, error) {
+	if !p.More() {
+		return nil, nil
+	}
+
+	resp := &azblob.ListBlobsFlatResponse{}
+	name := p.items[p.position]
+	resp.Segment.BlobItems = []azblob.BlobItem{{Name: &name}}
+	p.position++
+	return resp, nil
+}
+
 // MockContainerClient implementeert de container client interface
 type MockContainerClient struct {
 	blobItems []string
 }
 
-func (m *MockContainerClient) NewListBlobsFlatPager(options *azblob.ListBlobsFlatOptions) *azblob.ListBlobsFlatPager {
-	return &MockPager{
+func (m *MockContainerClient) NewListBlobsFlatPager(options *azblob.ListBlobsFlatOptions) azblob.ListBlobsFlatPager {
+	return &MockFlatPager{
 		items:    m.blobItems,
 		position: 0,
 	}
+}
+
+func (m *MockContainerClient) NewListBlobsHierarchyPager(delimiter string, options *container.ListBlobsHierarchyOptions) container.ListBlobsHierarchyPager {
+	return nil // We gebruiken dit niet voor de glob pattern test
 }
 
 // MockServiceClient implementeert de service client interface
@@ -151,18 +184,17 @@ type MockServiceClient struct {
 	containerClient *MockContainerClient
 }
 
-func (m *MockServiceClient) NewContainerClient(containerName string) *azblob.ContainerClient {
-	return &azblob.ContainerClient{}
+func (m *MockServiceClient) NewContainerClient(containerName string) *MockContainerClient {
+	return m.containerClient
 }
 
 // MockClient implementeert de client interface
 type MockClient struct {
 	serviceClient *MockServiceClient
-	blobItems    []string
 }
 
-func (m *MockClient) ServiceClient() *azblob.ServiceClient {
-	return &azblob.ServiceClient{}
+func (m *MockClient) ServiceClient() *MockServiceClient {
+	return m.serviceClient
 }
 
 func TestAzureBlobScalerWithGlobPattern(t *testing.T) {
@@ -243,7 +275,11 @@ func TestAzureBlobScalerWithGlobPattern(t *testing.T) {
 			}
 
 			mockClient := &MockClient{
-				blobItems: tc.blobItems,
+				serviceClient: &MockServiceClient{
+					containerClient: &MockContainerClient{
+						blobItems: tc.blobItems,
+					},
+				},
 			}
 
 			count, err := azure.GetAzureBlobListLength(
