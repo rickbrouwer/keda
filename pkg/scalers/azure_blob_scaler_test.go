@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gobwas/glob"
 	"github.com/go-logr/logr"
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
@@ -83,6 +84,10 @@ var testAzBlobMetadata = []parseAzBlobMetadataTestData{
 	{map[string]string{"connectionFromEnv": "CONNECTION", "blobContainerName": "sample", "blobCount": "5", "recursive": "invalid"}, true, testAzBlobResolvedEnv, map[string]string{}, ""},
 	// with invalid glob pattern
 	{map[string]string{"connectionFromEnv": "CONNECTION", "blobContainerName": "sample", "blobCount": "5", "globPattern": "[\\]"}, true, testAzBlobResolvedEnv, map[string]string{}, ""},
+	// test with path specific glob pattern
+	{map[string]string{"connectionFromEnv": "CONNECTION", "blobContainerName": "sample", "blobCount": "5", "globPattern": "folderA/subFolderA/*.json"}, false, testAzBlobResolvedEnv, map[string]string{}, ""},
+	// test with double asteriks glob pattern
+	{map[string]string{"connectionFromEnv": "CONNECTION", "blobContainerName": "sample", "blobCount": "5", "globPattern": "**/subFolderA/*.json"}, false, testAzBlobResolvedEnv, map[string]string{}, ""},
 }
 
 var azBlobMetricIdentifiers = []azBlobMetricIdentifier{
@@ -125,5 +130,54 @@ func TestAzBlobGetMetricSpecForScaling(t *testing.T) {
 		if metricName != testData.name {
 			t.Error("Wrong External metric source name:", metricName)
 		}
+	}
+}
+
+func TestAzureBlobGlobPatternMatching(t *testing.T) {
+	testCases := []struct {
+		name       string
+		pattern    string
+		blobPaths  []string
+		shouldMatch []bool
+	}{
+		{
+			name:    "Simple JSON pattern",
+			pattern: "folderA/subFolderA/*.json",
+			blobPaths: []string{
+				"folderA/subFolderA/file1.json",
+				"folderA/subFolderA/file2.json",
+				"folderA/subFolderB/file3.json",
+				"folderA/subFolderA/file4.txt",
+			},
+			shouldMatch: []bool{true, true, false, false},
+		},
+		{
+			name:    "Specific prefix pattern",
+			pattern: "folderA/subFolderA/part-*.json",
+			blobPaths: []string{
+				"folderA/subFolderA/part-fileA.json",
+				"folderA/subFolderA/part-fileB.json",
+				"folderA/subFolderA/_METADATA_FILE",
+				"folderA/subFolderA/other.json",
+			},
+			shouldMatch: []bool{true, true, false, false},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			glob, err := glob.Compile(tc.pattern)
+			if err != nil {
+				t.Fatalf("Failed to compile glob pattern: %v", err)
+			}
+
+			for i, path := range tc.blobPaths {
+				matches := glob.Match(path)
+				if matches != tc.shouldMatch[i] {
+					t.Errorf("Path '%s' with pattern '%s': expected match=%v, got match=%v",
+					path, tc.pattern, tc.shouldMatch[i], matches)
+				}
+			}
+		})
 	}
 }
