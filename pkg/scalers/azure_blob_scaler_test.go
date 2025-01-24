@@ -134,51 +134,35 @@ func TestAzBlobGetMetricSpecForScaling(t *testing.T) {
 	}
 }
 
-// MockBlobResponse simulate Azure Blob response
-type MockBlobResponse struct {
-	Segment struct {
-		BlobItems []azblob.BlobItem
-	}
-}
-
-// MockPager simulate Azure Blob paging
-type MockPager struct {
-	items    []string
-	position int
-}
-
-func (p *MockPager) More() bool {
-	return p.position < len(p.items)
-}
-
-func (p *MockPager) NextPage(ctx context.Context) (*MockBlobResponse, error) {
-	if !p.More() {
-		return nil, nil
-	}
-
-	response := &MockBlobResponse{}
-	response.Segment.BlobItems = make([]azblob.BlobItem, 1)
-	
-	name := p.items[p.position]
-	blobItem := azblob.BlobItem{
-		Name: &name,
-	}
-	response.Segment.BlobItems[0] = blobItem
-	
-	p.position++
-	return response, nil
-}
-
-// MockAzureBlobClient simulate Azure Blob client
-type MockAzureBlobClient struct {
+// MockContainerClient implementeert de container client interface
+type MockContainerClient struct {
 	blobItems []string
 }
 
-func (m *MockAzureBlobClient) NewListBlobsFlatPager(options *azblob.ListBlobsFlatOptions) azblob.ListBlobsFlatPager {
+func (m *MockContainerClient) NewListBlobsFlatPager(options *azblob.ListBlobsFlatOptions) *azblob.ListBlobsFlatPager {
 	return &MockPager{
 		items:    m.blobItems,
 		position: 0,
 	}
+}
+
+// MockServiceClient implementeert de service client interface
+type MockServiceClient struct {
+	containerClient *MockContainerClient
+}
+
+func (m *MockServiceClient) NewContainerClient(containerName string) *azblob.ContainerClient {
+	return &azblob.ContainerClient{}
+}
+
+// MockClient implementeert de client interface
+type MockClient struct {
+	serviceClient *MockServiceClient
+	blobItems    []string
+}
+
+func (m *MockClient) ServiceClient() *azblob.ServiceClient {
+	return &azblob.ServiceClient{}
 }
 
 func TestAzureBlobScalerWithGlobPattern(t *testing.T) {
@@ -258,7 +242,7 @@ func TestAzureBlobScalerWithGlobPattern(t *testing.T) {
 				t.Fatalf("Error parsing metadata: %v", err)
 			}
 
-			mockClient := &MockAzureBlobClient{
+			mockClient := &MockClient{
 				blobItems: tc.blobItems,
 			}
 
