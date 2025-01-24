@@ -20,10 +20,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gobwas/glob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/go-logr/logr"
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
+	"github.com/kedacore/keda/v2/pkg/scalers/azure"
 	"github.com/kedacore/keda/v2/pkg/scalers/scalersconfig"
 )
 
@@ -133,66 +134,64 @@ func TestAzBlobGetMetricSpecForScaling(t *testing.T) {
 	}
 }
 
-func TestAzureBlobGlobPatternMatching(t *testing.T) {
-	testCases := []struct {
-		name       string
-		pattern    string
-		blobPaths  []string
-		shouldMatch []bool
-	}{
-		{
-			name:    "Simple JSON pattern",
-			pattern: "folderA/subFolderA/*.json",
-			blobPaths: []string{
-				"folderA/subFolderA/file1.json",
-				"folderA/subFolderA/file2.json",
-				"folderA/subFolderB/file3.json",
-				"folderA/subFolderA/file4.txt",
-			},
-			shouldMatch: []bool{true, true, false, false},
-		},
-		{
-			name:    "Specific prefix pattern",
-			pattern: "folderA/subFolderA/part-*.json",
-			blobPaths: []string{
-				"folderA/subFolderA/part-fileA.json",
-				"folderA/subFolderA/part-fileB.json",
-				"folderA/subFolderA/_METADATA_FILE",
-				"folderA/subFolderA/other.json",
-			},
-			shouldMatch: []bool{true, true, false, false},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			glob, err := glob.Compile(tc.pattern)
-			if err != nil {
-				t.Fatalf("Failed to compile glob pattern: %v", err)
-			}
-
-			for i, path := range tc.blobPaths {
-				matches := glob.Match(path)
-				if matches != tc.shouldMatch[i] {
-					t.Errorf("Path '%s' with pattern '%s': expected match=%v, got match=%v",
-					path, tc.pattern, tc.shouldMatch[i], matches)
-				}
-			}
-		})
+// MockBlobResponse simuleert de Azure Blob response
+type MockBlobResponse struct {
+	Segment struct {
+		BlobItems []azblob.BlobItem
 	}
 }
 
-func TestAzureBlobGlobPatternCount(t *testing.T) {
+// MockPager simuleert de Azure Blob paging functionaliteit
+type MockPager struct {
+	items    []string
+	position int
+}
+
+func (p *MockPager) More() bool {
+	return p.position < len(p.items)
+}
+
+func (p *MockPager) NextPage(ctx context.Context) (*MockBlobResponse, error) {
+	if !p.More() {
+		return nil, nil
+	}
+
+	response := &MockBlobResponse{}
+	response.Segment.BlobItems = make([]azblob.BlobItem, 1)
+	
+	name := p.items[p.position]
+	blobItem := azblob.BlobItem{
+		Name: &name,
+	}
+	response.Segment.BlobItems[0] = blobItem
+	
+	p.position++
+	return response, nil
+}
+
+// MockAzureBlobClient simuleert de Azure Blob client
+type MockAzureBlobClient struct {
+	blobItems []string
+}
+
+func (m *MockAzureBlobClient) NewListBlobsFlatPager(options *azblob.ListBlobsFlatOptions) azblob.ListBlobsFlatPager {
+	return &MockPager{
+		items:    m.blobItems,
+		position: 0,
+	}
+}
+
+func TestAzureBlobScalerWithGlobPattern(t *testing.T) {
 	testCases := []struct {
-		name         string
-		pattern      string
-		blobPaths    []string
+		name          string
+		globPattern   string
+		blobItems     []string
 		expectedCount int64
 	}{
 		{
-			name:    "Count JSON files in folderA/subFolderA",
-			pattern: "folderA/subFolderA/*.json",
-			blobPaths: []string{
+			name:        "JSON files in specific folder",
+			globPattern: "folderA/subFolderA/*.json",
+			blobItems: []string{
 				"folderA/subFolderA/part-fileA.json",
 				"folderA/subFolderA/part-fileB.json",
 				"folderA/subFolderA/_METADATA_FILE",
@@ -202,26 +201,33 @@ func TestAzureBlobGlobPatternCount(t *testing.T) {
 			expectedCount: 2,
 		},
 		{
-			name:    "Count all JSON files",
-			pattern: "**/*.json",
-			blobPaths: []string{
+			name:        "No matching files",
+			globPattern: "folderA/subFolderA/*.csv",
+			blobItems: []string{
 				"folderA/subFolderA/part-fileA.json",
 				"folderA/subFolderA/part-fileB.json",
-				"folderA/subFolderA/_METADATA_FILE",
+			},
+			expectedCount: 0,
+		},
+		{
+			name:        "All JSON files recursively",
+			globPattern: "**/*.json",
+			blobItems: []string{
+				"folderA/subFolderA/part-fileA.json",
+				"folderA/subFolderA/part-fileB.json",
 				"folderA/subFolderB/fileD.json",
 				"folderB/subFolderC/fileE.txt",
 			},
 			expectedCount: 3,
 		},
 		{
-			name:    "Count part- prefixed JSON files",
-			pattern: "folderA/subFolderA/part-*.json",
-			blobPaths: []string{
+			name:        "Specific prefix JSON files",
+			globPattern: "folderA/subFolderA/part-*.json",
+			blobItems: []string{
 				"folderA/subFolderA/part-fileA.json",
 				"folderA/subFolderA/part-fileB.json",
+				"folderA/subFolderA/other.json",
 				"folderA/subFolderA/_METADATA_FILE",
-				"folderA/subFolderB/fileD.json",
-				"folderB/subFolderC/fileE.txt",
 			},
 			expectedCount: 2,
 		},
@@ -229,27 +235,49 @@ func TestAzureBlobGlobPatternCount(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			glob, err := glob.Compile(tc.pattern)
+			metadata := map[string]string{
+				"blobContainerName":    "container",
+				"activationBlobCount":  "1",
+				"blobCount":           "5",
+				"connectionFromEnv":    "CONNECTION",
+				"accountName":         "adlsaccount",
+				"globPattern":         tc.globPattern,
+			}
+
+			resolvedEnv := map[string]string{
+				"CONNECTION": "SAMPLE",
+			}
+
+			meta, _, err := parseAzureBlobMetadata(&scalersconfig.ScalerConfig{
+				TriggerMetadata: metadata,
+				ResolvedEnv:     resolvedEnv,
+				AuthParams:      map[string]string{},
+			}, logr.Discard())
+
 			if err != nil {
-				t.Fatalf("Failed to compile glob pattern: %v", err)
+				t.Fatalf("Error parsing metadata: %v", err)
 			}
-	
-			// Count matches
-			var count int64
-			for _, path := range tc.blobPaths {
-				if glob.Match(path) {
-					count++
-				}
+
+			mockClient := &MockAzureBlobClient{
+				blobItems: tc.blobItems,
 			}
-	
+
+			count, err := azure.GetAzureBlobListLength(
+				context.Background(),
+				mockClient,
+				meta,
+			)
+
+			if err != nil {
+				t.Fatalf("Error getting blob list length: %v", err)
+			}
+
 			if count != tc.expectedCount {
-				t.Errorf("Pattern '%s' matched %d files, expected %d matches.\nMatched files:", 
-				tc.pattern, count, tc.expectedCount)
-				// Print matching files for debug
-				for _, path := range tc.blobPaths {
-					if glob.Match(path) {
-						t.Logf("- %s", path)
-					}
+				t.Errorf("Expected count: %d, got: %d", tc.expectedCount, count)
+				t.Logf("Glob pattern: %s", tc.globPattern)
+				t.Logf("Available files:")
+				for _, item := range tc.blobItems {
+					t.Logf("- %s", item)
 				}
 			}
 		})
