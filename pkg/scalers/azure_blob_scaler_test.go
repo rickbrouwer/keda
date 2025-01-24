@@ -181,3 +181,77 @@ func TestAzureBlobGlobPatternMatching(t *testing.T) {
 		})
 	}
 }
+
+func TestAzureBlobGlobPatternCount(t *testing.T) {
+	testCases := []struct {
+		name         string
+		pattern      string
+		blobPaths    []string
+		expectedCount int64
+	}{
+		{
+			name:    "Count JSON files in folderA/subFolderA",
+			pattern: "folderA/subFolderA/*.json",
+			blobPaths: []string{
+				"folderA/subFolderA/part-fileA.json",
+				"folderA/subFolderA/part-fileB.json",
+				"folderA/subFolderA/_METADATA_FILE",
+				"folderA/subFolderB/fileD.json",
+				"folderB/subFolderC/fileE.txt",
+			},
+			expectedCount: 2,
+		},
+		{
+			name:    "Count all JSON files",
+			pattern: "**/*.json",
+			blobPaths: []string{
+				"folderA/subFolderA/part-fileA.json",
+				"folderA/subFolderA/part-fileB.json",
+				"folderA/subFolderA/_METADATA_FILE",
+				"folderA/subFolderB/fileD.json",
+				"folderB/subFolderC/fileE.txt",
+			},
+			expectedCount: 3,
+		},
+		{
+			name:    "Count part- prefixed JSON files",
+			pattern: "folderA/subFolderA/part-*.json",
+			blobPaths: []string{
+				"folderA/subFolderA/part-fileA.json",
+				"folderA/subFolderA/part-fileB.json",
+				"folderA/subFolderA/_METADATA_FILE",
+				"folderA/subFolderB/fileD.json",
+				"folderB/subFolderC/fileE.txt",
+			},
+			expectedCount: 2,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			glob, err := glob.Compile(tc.pattern)
+			if err != nil {
+				t.Fatalf("Failed to compile glob pattern: %v", err)
+			}
+	
+			// Count matches
+			var count int64
+			for _, path := range tc.blobPaths {
+				if glob.Match(path) {
+					count++
+				}
+			}
+	
+			if count != tc.expectedCount {
+				t.Errorf("Pattern '%s' matched %d files, expected %d matches.\nMatched files:", 
+				tc.pattern, count, tc.expectedCount)
+				// Print matching files for debug
+				for _, path := range tc.blobPaths {
+					if glob.Match(path) {
+						t.Logf("- %s", path)
+					}
+				}
+			}
+		})
+	}
+}
