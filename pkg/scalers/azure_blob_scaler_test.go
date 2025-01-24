@@ -134,14 +134,14 @@ func TestAzBlobGetMetricSpecForScaling(t *testing.T) {
 	}
 }
 
-// MockBlobResponse simuleert de Azure Blob response
+// MockBlobResponse simulate Azure Blob response
 type MockBlobResponse struct {
 	Segment struct {
 		BlobItems []azblob.BlobItem
 	}
 }
 
-// MockPager simuleert de Azure Blob paging functionaliteit
+// MockPager simulate Azure Blob paging
 type MockPager struct {
 	items    []string
 	position int
@@ -169,7 +169,7 @@ func (p *MockPager) NextPage(ctx context.Context) (*MockBlobResponse, error) {
 	return response, nil
 }
 
-// MockAzureBlobClient simuleert de Azure Blob client
+// MockAzureBlobClient simulate Azure Blob client
 type MockAzureBlobClient struct {
 	blobItems []string
 }
