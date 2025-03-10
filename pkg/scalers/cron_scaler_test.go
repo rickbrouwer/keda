@@ -39,12 +39,28 @@ var validCronMetadata2 = map[string]string{
 	"desiredReplicas": "10",
 }
 
+// A valid metadata example without desiredReplicas (should use minReplicas/maxReplicas)
+var validCronMetadataNoDesiredReplicas = map[string]string{
+	"timezone": "Etc/UTC",
+	"start":    "0 0 * * Thu",
+	"end":      "59 23 * * Thu",
+}
+
+// A valid metadata example for testing the range use case without desiredReplicas
+var validCronMetadataNoDesiredReplicas2 = map[string]string{
+	"timezone": "Etc/UTC",
+	"start":    "0 */2 * * *",    // Every 2 hours (even)
+	"end":      "0 1-23/2 * * *", // Every 2 hours starting at 1 (odd)
+}
+
 var testCronMetadata = []parseCronMetadataTestData{
 	{map[string]string{}, true},
 	{validCronMetadata, false},
 	{validCronMetadata2, false},
+	{validCronMetadataNoDesiredReplicas, false},
+	{validCronMetadataNoDesiredReplicas2, false},
 	{map[string]string{"timezone": "Asia/Kolkata", "start": "30 * * * *", "end": "45 * * * *"}, true},
-	{map[string]string{"start": "30 * * * *", "end": "45 * * * *", "desiredReplicas": "10"}, true},
+	{map[string]string{"start": "30 * * * *", "end": "45 * * * *"}, true},
 	{map[string]string{"timezone": "Asia/Kolkata", "start": "30-33 * * * *", "end": "45 * * * *", "desiredReplicas": "10"}, false},
 	{map[string]string{"timezone": "Asia/Kolkata", "start": "30 * * * *", "end": "45-50 * * * *", "desiredReplicas": "10"}, false},
 	{map[string]string{"timezone": "Asia/Kolkata", "start": "-30 * * * *", "end": "45 * * * *", "desiredReplicas": "10"}, true},
@@ -56,6 +72,7 @@ var testCronMetadata = []parseCronMetadataTestData{
 var cronMetricIdentifiers = []cronMetricIdentifier{
 	{&testCronMetadata[1], 0, "s0-cron-Etc-UTC-00xxThu-5923xxThu"},
 	{&testCronMetadata[2], 1, "s1-cron-Etc-UTC-0xSl2xxx-01-23Sl2xxx"},
+	{&testCronMetadata[3], 2, "s2-cron-Etc-UTC-00xxThu-5923xxThu"},
 }
 
 var tz, _ = time.LoadLocation(validCronMetadata2["timezone"])
@@ -113,6 +130,69 @@ func TestGetMetricsRange(t *testing.T) {
 		assert.Equal(t, metrics[0].Value.Value(), int64(10))
 	} else {
 		assert.Equal(t, metrics[0].Value.Value(), int64(1))
+	}
+}
+
+// Test metrics when desiredReplicas is not provided
+func TestGetMetricsWithoutDesiredReplicas(t *testing.T) {
+	// Create scaler with min=2 and max=8
+	scaler, _ := NewCronScaler(&scalersconfig.ScalerConfig{
+		TriggerMetadata: validCronMetadataNoDesiredReplicas,
+		MinReplicas:     2,
+		MaxReplicas:     8,
+	})
+	
+	metrics, _, _ := scaler.GetMetricsAndActivity(context.TODO(), "ReplicaCount")
+	assert.Equal(t, metrics[0].MetricName, "ReplicaCount")
+	
+	if currentDay == "Thursday" {
+		// Should use maxReplicas inside the interval
+		assert.Equal(t, metrics[0].Value.Value(), int64(8))
+	} else {
+		// Should use minReplicas outside the interval
+		assert.Equal(t, metrics[0].Value.Value(), int64(2))
+	}
+}
+
+// Test metrics when desiredReplicas is not provided for range pattern
+func TestGetMetricsRangeWithoutDesiredReplicas(t *testing.T) {
+	// Create scaler with min=3 and max=9
+	scaler, _ := NewCronScaler(&scalersconfig.ScalerConfig{
+		TriggerMetadata: validCronMetadataNoDesiredReplicas2,
+		MinReplicas:     3,
+		MaxReplicas:     9,
+	})
+	
+	metrics, _, _ := scaler.GetMetricsAndActivity(context.TODO(), "ReplicaCount")
+	assert.Equal(t, metrics[0].MetricName, "ReplicaCount")
+	
+	if currentHour%2 == 0 {
+		// Should use maxReplicas inside the interval
+		assert.Equal(t, metrics[0].Value.Value(), int64(9))
+	} else {
+		// Should use minReplicas outside the interval
+		assert.Equal(t, metrics[0].Value.Value(), int64(3))
+	}
+}
+
+// Test behavior with mixed configuration - desiredReplicas takes precedence when provided
+func TestDesiredReplicasPrecedence(t *testing.T) {
+	// Create scaler with min=2 and max=8 but also with desiredReplicas=5
+	scalerConfig := &scalersconfig.ScalerConfig{
+		TriggerMetadata: validCronMetadata,  // This has desiredReplicas: 10
+		MinReplicas:     2,
+		MaxReplicas:     8,
+	}
+	
+	scaler, _ := NewCronScaler(scalerConfig)
+	metrics, _, _ := scaler.GetMetricsAndActivity(context.Background(), "ReplicaCount")
+	
+	if currentDay == "Thursday" {
+		// Should use desiredReplicas (10) even though max is 8 
+		assert.Equal(t, metrics[0].Value.Value(), int64(10))
+	} else {
+		// Should use minReplicas outside the interval
+		assert.Equal(t, metrics[0].Value.Value(), int64(2))
 	}
 }
 
