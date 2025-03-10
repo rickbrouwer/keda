@@ -25,13 +25,15 @@ type cronScaler struct {
 	logger        logr.Logger
 	startSchedule cron.Schedule
 	endSchedule   cron.Schedule
+	minReplicas   int64
+	maxReplicas   int64
 }
 
 type cronMetadata struct {
 	Start           string `keda:"name=start,           order=triggerMetadata"`
 	End             string `keda:"name=end,             order=triggerMetadata"`
 	Timezone        string `keda:"name=timezone,        order=triggerMetadata"`
-	DesiredReplicas int64  `keda:"name=desiredReplicas, order=triggerMetadata"`
+	DesiredReplicas int64  `keda:"name=desiredReplicas, order=triggerMetadata, optional"`
 	TriggerIndex    int
 }
 
@@ -47,10 +49,6 @@ func (m *cronMetadata) Validate() error {
 
 	if m.Start == m.End {
 		return fmt.Errorf("start and end can not have exactly same time input")
-	}
-
-	if m.DesiredReplicas == 0 {
-		return fmt.Errorf("no desiredReplicas specified")
 	}
 
 	return nil
@@ -71,6 +69,10 @@ func NewCronScaler(config *scalersconfig.ScalerConfig) (Scaler, error) {
 
 	startSchedule, _ := parser.Parse(meta.Start)
 	endSchedule, _ := parser.Parse(meta.End)
+	
+	// Get min and max replicas from ScaledObject
+	minReplicas := config.MinReplicas
+	maxReplicas := config.MaxReplicas
 
 	return &cronScaler{
 		metricType:    metricType,
@@ -78,6 +80,8 @@ func NewCronScaler(config *scalersconfig.ScalerConfig) (Scaler, error) {
 		logger:        InitializeLogger(config, "cron_scaler"),
 		startSchedule: startSchedule,
 		endSchedule:   endSchedule,
+		minReplicas:   minReplicas,
+		maxReplicas:   maxReplicas,
 	}, nil
 }
 
@@ -143,7 +147,15 @@ func (s *cronScaler) GetMetricsAndActivity(_ context.Context, metricName string)
 
 	metricValue := float64(1)
 	if isWithinInterval {
-		metricValue = float64(s.metadata.DesiredReplicas)
+		// If within interval, use desiredReplicas if provided, otherwise use maxReplicas
+		if s.metadata.DesiredReplicas > 0 {
+			metricValue = float64(s.metadata.DesiredReplicas)
+		} else {
+			metricValue = float64(s.maxReplicas)
+		}
+	} else {
+		// If outside interval, use minReplicas
+		metricValue = float64(s.minReplicas)
 	}
 
 	metric := GenerateMetricInMili(metricName, metricValue)
