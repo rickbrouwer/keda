@@ -1440,7 +1440,63 @@ var _ = Describe("ScaledObjectController", func() {
 			return so.Status.Conditions.GetReadyCondition().Status
 		}).Should(Equal(metav1.ConditionFalse))
 	})
-
+	It("should pause autoscaling when AutoscalingPaused is set", func() {
+		// Create a mock controller
+		ctrl := gomock.NewController(util.GinkgoTestReporter{})
+		mockScaleHandler := mock_scaling.NewMockScaleHandler(ctrl)
+		mockClient := mock_client.NewMockClient(ctrl)
+	
+		// Create a test reconciler with AutoscalingPaused=true
+		testReconciler := ScaledObjectReconciler{
+			ScaleHandler:     mockScaleHandler,
+			Client:           mockClient,
+			AutoscalingPaused: true,
+		}
+	
+		// Create a test ScaledObject
+		scaledObject := &kedav1alpha1.ScaledObject{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-autoscaling-paused",
+				Namespace: "default",
+			},
+			Spec: kedav1alpha1.ScaledObjectSpec{
+				ScaleTargetRef: &kedav1alpha1.ScaleTarget{
+					Name: "test-deployment",
+				},
+				Triggers: []kedav1alpha1.ScaleTriggers{
+					{
+						Type: "cron",
+						Metadata: map[string]string{
+							"start": "0 * * * *",
+							"end": "1 * * * *",
+						},
+					},
+				},
+			},
+		}
+	
+		// Initialize conditions
+		conditions := *kedav1alpha1.GetInitializedConditions()
+	
+		// Set up expectations for StopScaleLoop
+		mockScaleHandler.EXPECT().DeleteScalableObject(gomock.Any(), scaledObject).Return(nil)
+	
+		// Set up expectations for HPA check (not found)
+		mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(errors.NewNotFound(kedav1alpha1.Resource("horizontalpodautoscalers"), "test-hpa"))
+	
+		// Call reconcileScaledObject (which is called by Reconcile)
+		message, err := testReconciler.reconcileScaledObject(context.Background(), 
+			testLogger, 
+			scaledObject, 
+			&conditions)
+	
+		// Verify results
+		Expect(err).To(BeNil())
+		Expect(message).To(ContainSubstring("Autoscaling is paused cluster-wide"))
+		Expect(conditions.GetPausedCondition().Status).To(Equal(metav1.ConditionTrue))
+		Expect(conditions.GetPausedCondition().Reason).To(Equal("ClusterWidePaused"))
+	})
 })
 
 func generateDeployment(name string) *appsv1.Deployment {

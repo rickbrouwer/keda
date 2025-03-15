@@ -60,6 +60,8 @@ type ScaledJobReconciler struct {
 	GlobalHTTPTimeout time.Duration
 	EventEmitter      eventemitter.EventHandler
 
+	AutoscalingPaused bool
+
 	scaledJobGenerations *sync.Map
 	scaleHandler         scaling.ScaleHandler
 	SecretsLister        corev1listers.SecretLister
@@ -231,6 +233,19 @@ func (r *ScaledJobReconciler) reconcileScaledJob(ctx context.Context, logger log
 
 // checkIfPaused checks the presence of "autoscaling.keda.sh/paused" annotation on the scaledJob and stop the scale loop.
 func (r *ScaledJobReconciler) checkIfPaused(ctx context.Context, logger logr.Logger, scaledJob *kedav1alpha1.ScaledJob, conditions *kedav1alpha1.Conditions) (bool, error) {
+	if r.AutoscalingPaused {
+		if conditions.GetPausedCondition().Status != metav1.ConditionTrue {
+			logger.Info("ScaledJob is paused cluster-wide, stopping scaling loop.")
+			msg := "Autoscaling is paused cluster-wide by configuration"
+			if err := r.stopScaleLoop(ctx, logger, scaledJob); err != nil {
+				msg = "failed to stop the scale loop for paused ScaledJob (cluster-wide)"
+				conditions.SetPausedCondition(metav1.ConditionFalse, "ScaledJobStopScaleLoopFailed", msg)
+				return false, err
+			}
+			conditions.SetPausedCondition(metav1.ConditionTrue, "ClusterWidePaused", msg)
+		}
+		return true, nil
+	}
 	pausedAnnotationValue, pausedAnnotation := scaledJob.GetAnnotations()[kedav1alpha1.PausedAnnotation]
 	pausedStatus := conditions.GetPausedCondition().Status == metav1.ConditionTrue
 	shouldPause := false

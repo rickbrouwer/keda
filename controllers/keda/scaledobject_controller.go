@@ -76,6 +76,8 @@ type ScaledObjectReconciler struct {
 
 	restMapper               meta.RESTMapper
 	scaledObjectsGenerations *sync.Map
+
+	AutoscalingPaused bool
 }
 
 type scaledObjectMetricsData struct {
@@ -225,6 +227,22 @@ func (r *ScaledObjectReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 // reconcileScaledObject implements reconciler logic for ScaledObject
 func (r *ScaledObjectReconciler) reconcileScaledObject(ctx context.Context, logger logr.Logger, scaledObject *kedav1alpha1.ScaledObject, conditions *kedav1alpha1.Conditions) (string, error) {
+	// Check cluster-wide pausing
+	if r.AutoscalingPaused {
+		msg := "Autoscaling is paused cluster-wide by configuration"
+		logger.Info(msg)
+		if err := r.stopScaleLoop(ctx, logger, scaledObject); err != nil {
+			msg = "failed to stop the scale loop for paused ScaledObject (cluster-wide)"
+			return msg, err
+		}
+		if deleted, err := r.ensureHPAForScaledObjectIsDeleted(ctx, logger, scaledObject); !deleted {
+			msg = "failed to delete HPA for paused ScaledObject (cluster-wide)"
+			return msg, err
+		}
+		conditions.SetPausedCondition(metav1.ConditionTrue, "ClusterWidePaused", msg)
+		return msg, nil
+	}
+
 	// Check the presence of "autoscaling.keda.sh/paused" annotation on the scaledObject (since the presence of this annotation will pause
 	// autoscaling no matter what number of replicas is provided), and if so, stop the scale loop and delete the HPA on the scaled object.
 	needsToPause := scaledObject.NeedToBePausedByAnnotation()

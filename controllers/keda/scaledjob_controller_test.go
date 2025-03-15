@@ -181,6 +181,74 @@ var _ = Describe("ScaledJobController", func() {
 				return sj.Status.Conditions.GetReadyCondition().Status
 			}).Should(Equal(metav1.ConditionFalse))
 		})
+		// Test cluster-wide pausing for ScaledJob
+		It("scaledjob checkIfPaused returns true when cluster-wide pausing is enabled", func() {
+			jobName := "cluster-wide-paused-job"
+			sjName := "sj-" + jobName
+
+			// Create ScaledJob
+			sj := &kedav1alpha1.ScaledJob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      sjName,
+					Namespace: "default",
+				},
+				Spec: kedav1alpha1.ScaledJobSpec{
+					JobTargetRef: generateJobSpec(jobName),
+					Triggers: []kedav1alpha1.ScaleTriggers{
+						{
+							Type: "cron",
+							Metadata: map[string]string{
+								"timezone":        "UTC",
+								"start":           "0 * * * *",
+								"end":             "1 * * * *",
+								"desiredReplicas": "1",
+							},
+						},
+					},
+				},
+			}
+			pollingInterval := int32(5)
+			sj.Spec.PollingInterval = &pollingInterval
+			err := k8sClient.Create(context.Background(), sj)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Check if ScaledJob is not paused
+			Eventually(func() metav1.ConditionStatus {
+				err := k8sClient.Get(context.Background(), types.NamespacedName{Name: sjName, Namespace: "default"}, sj)
+				if err != nil {
+					return metav1.ConditionTrue
+				}
+				return sj.Status.Conditions.GetPausedCondition().Status
+			}, 5*time.Second).Should(Or(Equal(metav1.ConditionFalse), Equal(metav1.ConditionUnknown)))
+
+			// Create reconciler
+			mockClient := k8sClient
+			ctx := context.Background()
+			reconciler := ScaledJobReconciler{
+				Client:            mockClient,
+				Scheme:            mockClient.Scheme(),
+				GlobalHTTPTimeout: time.Second * 3,
+				AutoscalingPaused: true,
+			}
+    
+			// Retrieve the ScaledJob and directly test the checkIfPaused function
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: sjName, Namespace: "default"}, sj)
+			Expect(err).ToNot(HaveOccurred())
+    
+			// Test by calling the function directly
+			conditions := &kedav1alpha1.Conditions{}
+			isPaused, err := reconciler.checkIfPaused(ctx, testLogger, sj, conditions)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(isPaused).To(BeTrue())
+			Expect(conditions.GetPausedCondition().Status).To(Equal(metav1.ConditionTrue))
+			Expect(conditions.GetPausedCondition().Reason).To(Equal("ClusterWidePaused"))
+    
+			// Test that if AutoscalingPaused is false, the function also returns false
+			reconciler.AutoscalingPaused = false
+			isPaused, err = reconciler.checkIfPaused(ctx, testLogger, sj, conditions)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(isPaused).To(BeFalse())
+		})
 	})
 })
 

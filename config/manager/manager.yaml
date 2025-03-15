@@ -67,6 +67,8 @@ spec:
               value: ""
             - name: KEDA_HTTP_DEFAULT_TIMEOUT
               value: ""
+            - name: KEDA_AUTOSCALING_PAUSED
+              value: "false"
           securityContext:
             runAsNonRoot: true
             capabilities:

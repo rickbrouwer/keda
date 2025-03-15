@@ -201,6 +201,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	autoscalingPaused, err := kedautil.ResolveOsEnvBool("KEDA_AUTOSCALING_PAUSED", false)
+	if err != nil {
+    		setupLog.Error(err, "invalid KEDA_AUTOSCALING_PAUSED")
+    		os.Exit(1)
+	}
+
 	globalHTTPTimeout := time.Duration(globalHTTPTimeoutMS) * time.Millisecond
 	eventRecorder := mgr.GetEventRecorderFor("keda-operator")
 
@@ -229,11 +235,12 @@ func main() {
 	eventEmitter := eventemitter.NewEventEmitter(mgr.GetClient(), eventRecorder, k8sClusterName, secretInformer.Lister())
 
 	if err = (&kedacontrollers.ScaledObjectReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		ScaleClient:  scaleClient,
-		ScaleHandler: scaledHandler,
-		EventEmitter: eventEmitter,
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		ScaleClient:       scaleClient,
+		ScaleHandler:      scaledHandler,
+		EventEmitter:      eventEmitter,
+		AutoscalingPaused: autoscalingPaused,
 	}).SetupWithManager(mgr, controller.Options{
 		MaxConcurrentReconciles: scaledObjectMaxReconciles,
 	}); err != nil {
@@ -247,6 +254,7 @@ func main() {
 		EventEmitter:      eventEmitter,
 		SecretsLister:     secretInformer.Lister(),
 		SecretsSynced:     secretInformer.Informer().HasSynced,
+		AutoscalingPaused: autoscalingPaused,
 	}).SetupWithManager(mgr, controller.Options{
 		MaxConcurrentReconciles: scaledJobMaxReconciles,
 	}); err != nil {
