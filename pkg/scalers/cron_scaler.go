@@ -125,27 +125,24 @@ func (s *cronScaler) GetMetricsAndActivity(_ context.Context, metricName string)
 		return []external_metrics.ExternalMetricValue{}, false, fmt.Errorf("unable to load timezone: %w", err)
 	}
 
-	currentTime := time.Now().In(location)
+	currentTime := time.Now().In(location).Unix()
 
-	// Use the pre-parsed schedules to get the next start and end times
-	nextStartTime := getCronTime(location, s.startSchedule)
-	nextEndTime := getCronTime(location, s.endSchedule)
+	nextStart := s.startSchedule.Next(time.Now().In(location)).Unix()
+	nextEnd := s.endSchedule.Next(time.Now().In(location)).Unix()
 
-	isWithinInterval := false
-
-	if nextStartTime.Before(nextEndTime) {
-		// Interval within the same day
-		isWithinInterval = currentTime.After(nextStartTime) && currentTime.Before(nextEndTime)
-	} else {
-		// Interval spans midnight
-		isWithinInterval = currentTime.After(nextStartTime) || currentTime.Before(nextEndTime)
-	}
-
+	isActive := false
 	metricValue := float64(1)
-	if isWithinInterval {
+
+	switch {
+	case nextStart < nextEnd && currentTime < nextStart:
+		isActive = false
+	case currentTime <= nextEnd:
 		metricValue = float64(s.metadata.DesiredReplicas)
+		isActive = true
+	default:
+		isActive = false
 	}
 
 	metric := GenerateMetricInMili(metricName, metricValue)
-	return []external_metrics.ExternalMetricValue{metric}, isWithinInterval, nil
+	return []external_metrics.ExternalMetricValue{metric}, isActive, nil
 }
