@@ -896,7 +896,7 @@ var _ = Describe("ScaledObjectController", func() {
 				return metav1.ConditionTrue
 			}
 			return so.Status.Conditions.GetPausedCondition().Status
-		}, 5*time.Second).Should(Or(Equal(metav1.ConditionFalse), Equal(metav1.ConditionUnknown)))
+		}, 5*time.Second).Should(Equal(metav1.ConditionFalse))
 
 		// set annotation
 		Eventually(func() error {
@@ -985,7 +985,7 @@ var _ = Describe("ScaledObjectController", func() {
 				return metav1.ConditionTrue
 			}
 			return so.Status.Conditions.GetPausedCondition().Status
-		}, 5*time.Second).Should(Or(Equal(metav1.ConditionFalse), Equal(metav1.ConditionUnknown)))
+		}, 5*time.Second).Should(Equal(metav1.ConditionFalse))
 
 		// set annotation to true at first
 		Eventually(func() error {
