@@ -48,10 +48,11 @@ import (
 	kedastatus "github.com/kedacore/keda/v2/pkg/status"
 )
 
+// Configuration constants
 const (
 	maxRetryTimes         = 5
 	maxChannelBuffer      = 1024
-	maxWaitingEnqueueTime = 10
+	maxWaitingEnqueueTime = 10 * time.Second
 )
 
 // EventEmitter is the main struct for eventemitter package
@@ -112,8 +113,13 @@ func NewEventEmitter(client client.Client, recorder record.EventRecorder, cluste
 	}
 }
 
+// initializeLogger creates a logger with appropriate context
 func initializeLogger(cloudEventSourceI eventingv1alpha1.CloudEventSourceInterface, cloudEventSourceEmitterName string) logr.Logger {
-	return logf.Log.WithName(cloudEventSourceEmitterName).WithValues("type", cloudEventSourceI.GetObjectKind(), "namespace", cloudEventSourceI.GetNamespace(), "name", cloudEventSourceI.GetName())
+	return logf.Log.WithName(cloudEventSourceEmitterName).WithValues(
+		"type", cloudEventSourceI.GetObjectKind(),
+		"namespace", cloudEventSourceI.GetNamespace(),
+		"name", cloudEventSourceI.GetName(),
+	)
 }
 
 // HandleCloudEventSource will create CloudEventSource handlers that defined in spec and start an event loop once handlers
@@ -128,11 +134,10 @@ func (e *EventEmitter) HandleCloudEventSource(ctx context.Context, cloudEventSou
 	key := cloudEventSourceI.GenerateIdentifier()
 	cancelCtx, cancel := context.WithCancel(ctx)
 
-	// cancel the outdated EventLoop for the same CloudEventSource (if exists)
+	// Cancel the outdated EventLoop for the same CloudEventSource (if exists)
 	value, loaded := e.eventLoopContexts.LoadOrStore(key, cancel)
 	if loaded {
-		cancelValue, ok := value.(context.CancelFunc)
-		if ok {
+		if cancelValue, ok := value.(context.CancelFunc); ok {
 			cancelValue()
 		}
 		e.eventLoopContexts.Store(key, cancel)
@@ -143,11 +148,11 @@ func (e *EventEmitter) HandleCloudEventSource(ctx context.Context, cloudEventSou
 		}
 	}
 
-	// a mutex is used to synchronize handler per cloudEventSource
+	// A mutex is used to synchronize handler per cloudEventSource
 	eventingMutex := &sync.Mutex{}
 
-	// passing deep copy of CloudEventSource to the eventLoop go routines, it's a precaution to not have global objects shared between threads
-	e.log.V(1).Info("Start CloudEventSource loop.")
+	// Passing deep copy of CloudEventSource to the eventLoop go routines
+	e.log.V(1).Info("Starting CloudEventSource loop", "name", cloudEventSourceI.GetName())
 	go e.startEventLoop(cancelCtx, cloudEventSourceI.DeepCopyObject().(eventingv1alpha1.CloudEventSourceInterface), eventingMutex)
 	return nil
 }
@@ -156,18 +161,18 @@ func (e *EventEmitter) HandleCloudEventSource(ctx context.Context, cloudEventSou
 func (e *EventEmitter) DeleteCloudEventSource(cloudEventSource eventingv1alpha1.CloudEventSourceInterface) error {
 	key := cloudEventSource.GenerateIdentifier()
 	result, ok := e.eventLoopContexts.Load(key)
-	e.log.V(1).Info("successfully DeleteCloudEventSourceDeleteCloudEventSourceDeleteCloudEventSource", "key", key)
+	e.log.V(1).Info("Deleting CloudEventSource", "key", key)
+
 	if ok {
-		cancel, ok := result.(context.CancelFunc)
-		if ok {
+		if cancel, ok := result.(context.CancelFunc); ok {
 			cancel()
 		}
 		e.eventLoopContexts.Delete(key)
 		e.clearEventHandlersCache(cloudEventSource)
-	} else {
-		e.log.V(1).Info("successfully CloudEventSource was not found in controller cache", "key", key)
+		return nil
 	}
 
+	e.log.V(1).Info("CloudEventSource was not found in controller cache", "key", key)
 	return nil
 }
 
@@ -175,8 +180,8 @@ func (e *EventEmitter) DeleteCloudEventSource(cloudEventSource eventingv1alpha1.
 // use in the loop.
 func (e *EventEmitter) createEventHandlers(ctx context.Context, cloudEventSourceI eventingv1alpha1.CloudEventSourceInterface) {
 	e.eventHandlersCacheLock.Lock()
-	e.eventFilterCacheLock.Lock()
 	defer e.eventHandlersCacheLock.Unlock()
+	e.eventFilterCacheLock.Lock()
 	defer e.eventFilterCacheLock.Unlock()
 
 	key := cloudEventSourceI.GenerateIdentifier()
@@ -190,18 +195,18 @@ func (e *EventEmitter) createEventHandlers(ctx context.Context, cloudEventSource
 	// Resolve auth related
 	authParams, podIdentity, err := resolver.ResolveAuthRefAndPodIdentity(ctx, e.client, e.log, spec.AuthenticationRef, nil, cloudEventSourceI.GetNamespace(), e.authClientSet)
 	if err != nil {
-		e.log.Error(err, "error resolving auth params", "cloudEventSource", cloudEventSourceI)
+		e.log.Error(err, "Error resolving auth params", "cloudEventSource", cloudEventSourceI.GetName())
 		return
 	}
 
 	// Create EventFilter from CloudEventSource
 	e.eventFilterCache[key] = NewEventFilter(spec.EventSubscription.IncludedEventTypes, spec.EventSubscription.ExcludedEventTypes)
 
-	// Create different event destinations here
+	// Create different event destinations based on specification
 	if spec.Destination.HTTP != nil {
 		eventHandler, err := NewCloudEventHTTPHandler(ctx, clusterName, spec.Destination.HTTP.URI, initializeLogger(cloudEventSourceI, "cloudevent_http"))
 		if err != nil {
-			e.log.Error(err, "create CloudEvent HTTP handler failed")
+			e.log.Error(err, "Failed to create CloudEvent HTTP handler")
 			return
 		}
 
@@ -214,9 +219,16 @@ func (e *EventEmitter) createEventHandlers(ctx context.Context, cloudEventSource
 	}
 
 	if spec.Destination.AzureEventGridTopic != nil {
-		eventHandler, err := NewAzureEventGridTopicHandler(ctx, clusterName, spec.Destination.AzureEventGridTopic, authParams, podIdentity, initializeLogger(cloudEventSourceI, "azure_event_grid_topic"))
+		eventHandler, err := NewAzureEventGridTopicHandler(
+			ctx,
+			clusterName,
+			spec.Destination.AzureEventGridTopic,
+			authParams,
+			podIdentity,
+			initializeLogger(cloudEventSourceI, "azure_event_grid_topic"),
+		)
 		if err != nil {
-			e.log.Error(err, "create Azure Event Grid handler failed")
+			e.log.Error(err, "Failed to create Azure Event Grid handler")
 			return
 		}
 
@@ -228,7 +240,7 @@ func (e *EventEmitter) createEventHandlers(ctx context.Context, cloudEventSource
 		return
 	}
 
-	e.log.Info("No destionation is defined in CloudEventSource", "CloudEventSource", cloudEventSourceI.GetName())
+	e.log.Info("No destination is defined in CloudEventSource", "CloudEventSource", cloudEventSourceI.GetName())
 }
 
 // clearEventHandlersCache will clear all event handlers that created by the passing CloudEventSource
@@ -243,7 +255,7 @@ func (e *EventEmitter) clearEventHandlersCache(cloudEventSource eventingv1alpha1
 
 	delete(e.eventFilterCache, key)
 
-	// Clear different event destination here.
+	// Clear different event destination handlers
 	if spec.Destination.HTTP != nil {
 		eventHandlerKey := newEventHandlerKey(key, cloudEventHandlerTypeHTTP)
 		if eventHandler, found := e.eventHandlersCache[eventHandlerKey]; found {
@@ -276,18 +288,23 @@ func (e *EventEmitter) checkIfEventHandlersExist(cloudEventSource eventingv1alph
 	return false
 }
 
+// startEventLoop begins a loop that processes CloudEvents and emits them to the appropriate handlers
 func (e *EventEmitter) startEventLoop(ctx context.Context, cloudEventSourceI eventingv1alpha1.CloudEventSourceInterface, cloudEventSourceMutex sync.Locker) {
-	e.log.V(1).Info("Start CloudEventSource loop.", "name", cloudEventSourceI.GetName())
+	e.log.V(1).Info("Starting CloudEventSource event loop", "name", cloudEventSourceI.GetName())
+
+	namespace := cloudEventSourceI.GetNamespace()
+
 	for {
 		select {
 		case eventData := <-e.cloudEventProcessingChan:
-			e.log.V(1).Info("Consuming events from CloudEventSource.", "name", cloudEventSourceI.GetName())
+			e.log.V(1).Info("Consuming event from CloudEventSource", "name", cloudEventSourceI.GetName())
 			e.emitEventByHandler(eventData)
 			e.checkEventHandlers(ctx, cloudEventSourceI, cloudEventSourceMutex)
-			metricscollector.RecordCloudEventQueueStatus(cloudEventSourceI.GetNamespace(), len(e.cloudEventProcessingChan))
+			metricscollector.RecordCloudEventQueueStatus(namespace, len(e.cloudEventProcessingChan))
+
 		case <-ctx.Done():
-			e.log.V(1).Info("CloudEventSource loop has stopped.")
-			metricscollector.RecordCloudEventQueueStatus(cloudEventSourceI.GetNamespace(), len(e.cloudEventProcessingChan))
+			e.log.V(1).Info("CloudEventSource loop has been stopped", "name", cloudEventSourceI.GetName())
+			metricscollector.RecordCloudEventQueueStatus(namespace, len(e.cloudEventProcessingChan))
 			return
 		}
 	}
@@ -295,21 +312,34 @@ func (e *EventEmitter) startEventLoop(ctx context.Context, cloudEventSourceI eve
 
 // checkEventHandlers will check each eventhandler active status
 func (e *EventEmitter) checkEventHandlers(ctx context.Context, cloudEventSourceI eventingv1alpha1.CloudEventSourceInterface, cloudEventSourceMutex sync.Locker) {
-	e.log.V(1).Info("Checking event handlers status.")
 	cloudEventSourceMutex.Lock()
 	defer cloudEventSourceMutex.Unlock()
+
+	e.log.V(1).Info("Checking event handlers status", "name", cloudEventSourceI.GetName())
+
 	// Get the latest object
-	err := e.client.Get(ctx, types.NamespacedName{Name: cloudEventSourceI.GetName(), Namespace: cloudEventSourceI.GetNamespace()}, cloudEventSourceI)
+	err := e.client.Get(ctx, types.NamespacedName{
+		Name:      cloudEventSourceI.GetName(),
+		Namespace: cloudEventSourceI.GetNamespace(),
+	}, cloudEventSourceI)
+
 	if err != nil {
-		e.log.Error(err, "error getting cloudEventSource", "cloudEventSource", cloudEventSourceI)
+		e.log.Error(err, "Error getting cloudEventSource", "cloudEventSource", cloudEventSourceI.GetName())
 		return
 	}
+
 	keyPrefix := cloudEventSourceI.GenerateIdentifier()
 	needUpdate := false
 	cloudEventSourceStatus := cloudEventSourceI.GetStatus().DeepCopy()
+
+	e.eventHandlersCacheLock.RLock()
+
 	for k, v := range e.eventHandlersCache {
-		e.log.V(1).Info("Checking event handler status.", "handler", k, "status", cloudEventSourceI.GetStatus().Conditions.GetActiveCondition().Status)
 		if strings.Contains(k, keyPrefix) {
+			e.log.V(1).Info("Checking event handler status",
+				"handler", k,
+				"current-status", cloudEventSourceI.GetStatus().Conditions.GetActiveCondition().Status)
+
 			if v.GetActiveStatus() != cloudEventSourceI.GetStatus().Conditions.GetActiveCondition().Status {
 				needUpdate = true
 				cloudEventSourceStatus.Conditions.SetActiveCondition(
@@ -320,6 +350,9 @@ func (e *EventEmitter) checkEventHandlers(ctx context.Context, cloudEventSourceI
 			}
 		}
 	}
+
+	e.eventHandlersCacheLock.RUnlock()
+
 	if needUpdate {
 		if updateErr := e.updateCloudEventSourceStatus(ctx, cloudEventSourceI, cloudEventSourceStatus); updateErr != nil {
 			e.log.Error(updateErr, "Failed to update CloudEventSource status")
@@ -332,13 +365,17 @@ func (e *EventEmitter) Emit(object runtime.Object, namespace string, eventType s
 	e.recorder.Event(object, eventType, reason, message)
 
 	e.eventHandlersCacheLock.RLock()
-	defer e.eventHandlersCacheLock.RUnlock()
-	if len(e.eventHandlersCache) == 0 {
+	handlerCount := len(e.eventHandlersCache)
+	e.eventHandlersCacheLock.RUnlock()
+
+	if handlerCount == 0 {
 		return
 	}
 
-	objectName, _ := meta.NewAccessor().Name(object)
-	objectType, _ := meta.NewAccessor().Kind(object)
+	accessor := meta.NewAccessor()
+	objectName, _ := accessor.Name(object)
+	objectType, _ := accessor.Kind(object)
+
 	eventData := eventdata.EventData{
 		Namespace:      namespace,
 		CloudEventType: cloudeventType,
@@ -348,16 +385,19 @@ func (e *EventEmitter) Emit(object runtime.Object, namespace string, eventType s
 		Message:        message,
 		Time:           time.Now().UTC(),
 	}
+
 	go e.enqueueEventData(eventData)
 }
 
+// enqueueEventData places an event in the processing queue with a timeout
 func (e *EventEmitter) enqueueEventData(eventData eventdata.EventData) {
 	metricscollector.RecordCloudEventQueueStatus(eventData.Namespace, len(e.cloudEventProcessingChan))
+
 	select {
 	case e.cloudEventProcessingChan <- eventData:
-		e.log.V(1).Info("Event enqueued successfully.")
-	case <-time.After(maxWaitingEnqueueTime * time.Second):
-		e.log.Error(nil, "Failed to enqueue CloudEvent. Need to be check if handler can emit events.")
+		e.log.V(1).Info("Event enqueued successfully")
+	case <-time.After(maxWaitingEnqueueTime):
+		e.log.Error(nil, "Failed to enqueue CloudEvent - queue might be full or blocked")
 	}
 }
 
@@ -367,66 +407,124 @@ func (e *EventEmitter) enqueueEventData(eventData eventdata.EventData) {
 // 3. If the maximum number of retries has been exceeded, discard this event.
 func (e *EventEmitter) emitEventByHandler(eventData eventdata.EventData) {
 	if eventData.RetryTimes >= maxRetryTimes {
-		e.log.Error(eventData.Err, "Failed to emit Event multiple times. Will drop this event and need to check if event endpoint works well", "CloudEventSource", eventData.ObjectName)
+		e.log.Error(eventData.Err,
+			"Failed to emit event after maximum retry attempts - dropping event",
+			"handlerKey", eventData.HandlerKey,
+			"retryCount", eventData.RetryTimes,
+			"objectName", eventData.ObjectName)
+
+		e.eventHandlersCacheLock.RLock()
 		handler, found := e.eventHandlersCache[eventData.HandlerKey]
+		e.eventHandlersCacheLock.RUnlock()
+
 		if found {
-			e.log.V(1).Info("Set handler failure status. 1", "handler", eventData.HandlerKey)
 			handler.SetActiveStatus(metav1.ConditionFalse)
 		}
 		return
 	}
 
 	if eventData.HandlerKey == "" {
-		for key, handler := range e.eventHandlersCache {
-			e.eventFilterCacheLock.RLock()
-			defer e.eventFilterCacheLock.RUnlock()
-			// Filter Event
-			identifierKey := getPrefixIdentifierFromKey(key)
+		e.dispatchToAllHandlers(eventData)
+	} else {
+		e.retrySpecificHandler(eventData)
+	}
+}
 
-			if e.eventFilterCache[identifierKey] != nil {
-				isFiltered := e.eventFilterCache[identifierKey].FilterEvent(eventData.CloudEventType)
-				if isFiltered {
-					e.log.V(1).Info("Event is filtered", "cloudeventType", eventData.CloudEventType, "event identifier", identifierKey)
-					return
-				}
-			}
-			eventData.HandlerKey = key
-			if handler.GetActiveStatus() == metav1.ConditionTrue {
-				go handler.EmitEvent(eventData, e.emitErrorHandle)
+// dispatchToAllHandlers sends an event to all registered handlers
+func (e *EventEmitter) dispatchToAllHandlers(eventData eventdata.EventData) {
+	e.eventHandlersCacheLock.RLock()
+	defer e.eventHandlersCacheLock.RUnlock()
 
-				metricscollector.RecordCloudEventEmitted(eventData.Namespace, getSourceNameFromKey(eventData.HandlerKey), getHandlerTypeFromKey(key))
-			} else {
-				e.log.V(1).Info("EventHandler's status is not active. Please check if event endpoint works well", "CloudEventSource", eventData.ObjectName)
+	for key, handler := range e.eventHandlersCache {
+		// Check if the event is filtered
+		e.eventFilterCacheLock.RLock()
+		identifierKey := getPrefixIdentifierFromKey(key)
+		filter := e.eventFilterCache[identifierKey]
+
+		isFiltered := false
+		if filter != nil {
+			isFiltered = filter.FilterEvent(eventData.CloudEventType)
+			if isFiltered {
+				e.log.V(1).Info("Event is filtered out by configuration",
+					"cloudEventType", eventData.CloudEventType,
+					"eventIdentifier", identifierKey)
 			}
 		}
-	} else {
-		e.log.Info("Failed to emit event", "handler", eventData.HandlerKey, "retry times", fmt.Sprintf("%d/%d", eventData.RetryTimes, maxRetryTimes), "error", eventData.Err)
-		handler, found := e.eventHandlersCache[eventData.HandlerKey]
-		if found && handler.GetActiveStatus() == metav1.ConditionTrue {
-			go handler.EmitEvent(eventData, e.emitErrorHandle)
+		e.eventFilterCacheLock.RUnlock()
+
+		if isFiltered {
+			continue
+		}
+
+		// Create a copy of the event data for this handler
+		handlerEventData := eventData
+		handlerEventData.HandlerKey = key
+
+		if handler.GetActiveStatus() == metav1.ConditionTrue {
+			go handler.EmitEvent(handlerEventData, e.emitErrorHandle)
+
+			metricscollector.RecordCloudEventEmitted(
+				eventData.Namespace,
+				getSourceNameFromKey(key),
+				getHandlerTypeFromKey(key),
+			)
+		} else {
+			e.log.V(1).Info("Event handler is not active - skipping",
+				"handler", key,
+				"objectName", eventData.ObjectName)
 		}
 	}
 }
 
+// retrySpecificHandler retries sending an event to a specific handler
+func (e *EventEmitter) retrySpecificHandler(eventData eventdata.EventData) {
+	e.log.Info("Retrying event emission",
+		"handler", eventData.HandlerKey,
+		"retry", fmt.Sprintf("%d/%d", eventData.RetryTimes, maxRetryTimes),
+		"error", eventData.Err)
+
+	e.eventHandlersCacheLock.RLock()
+	handler, found := e.eventHandlersCache[eventData.HandlerKey]
+	e.eventHandlersCacheLock.RUnlock()
+
+	if found && handler.GetActiveStatus() == metav1.ConditionTrue {
+		go handler.EmitEvent(eventData, e.emitErrorHandle)
+	}
+}
+
+// emitErrorHandle handles errors that occur when emitting events
 func (e *EventEmitter) emitErrorHandle(eventData eventdata.EventData, err error) {
-	metricscollector.RecordCloudEventEmittedError(eventData.Namespace, getSourceNameFromKey(eventData.HandlerKey), getHandlerTypeFromKey(eventData.HandlerKey))
+	metricscollector.RecordCloudEventEmittedError(
+		eventData.Namespace,
+		getSourceNameFromKey(eventData.HandlerKey),
+		getHandlerTypeFromKey(eventData.HandlerKey),
+	)
 
 	if eventData.RetryTimes >= maxRetryTimes {
-		e.log.V(1).Info("Failed to emit Event multiple times. Will set handler failure status.", "handler", eventData.HandlerKey, "retry times", eventData.RetryTimes)
+		e.log.V(1).Info("Maximum retry count exceeded - setting handler to failure status",
+			"handler", eventData.HandlerKey,
+			"retryCount", eventData.RetryTimes)
+
+		e.eventHandlersCacheLock.RLock()
 		handler, found := e.eventHandlersCache[eventData.HandlerKey]
+		e.eventHandlersCacheLock.RUnlock()
+
 		if found {
 			handler.SetActiveStatus(metav1.ConditionFalse)
 		}
 		return
 	}
 
+	// Prepare event data for retry
 	requeueData := eventData
 	requeueData.HandlerKey = eventData.HandlerKey
 	requeueData.RetryTimes++
 	requeueData.Err = err
+
 	e.enqueueEventData(requeueData)
 }
 
+// setCloudEventSourceStatusActive sets the status of a CloudEventSource to active
 func (e *EventEmitter) setCloudEventSourceStatusActive(ctx context.Context, cloudEventSourceI eventingv1alpha1.CloudEventSourceInterface) error {
 	cloudEventSourceStatus := cloudEventSourceI.GetStatus()
 	cloudEventSourceStatus.Conditions.SetActiveCondition(
@@ -437,60 +535,66 @@ func (e *EventEmitter) setCloudEventSourceStatusActive(ctx context.Context, clou
 	return e.updateCloudEventSourceStatus(ctx, cloudEventSourceI, cloudEventSourceStatus)
 }
 
+// updateCloudEventSourceStatus updates the status of a CloudEventSource
 func (e *EventEmitter) updateCloudEventSourceStatus(ctx context.Context, cloudEventSourceI eventingv1alpha1.CloudEventSourceInterface, cloudEventSourceStatus *eventingv1alpha1.CloudEventSourceStatus) error {
-	e.log.V(1).Info("Updating CloudEventSource status", "CloudEventSource", cloudEventSourceI.GetName())
+	e.log.V(1).Info("Updating CloudEventSource status", "name", cloudEventSourceI.GetName())
+
 	transform := func(runtimeObj client.Object, target interface{}) error {
 		status, ok := target.(eventingv1alpha1.CloudEventSourceStatus)
 		if !ok {
-			return fmt.Errorf("transform target is not eventingv1alpha1.CloudEventSourceStatus type %v", target)
+			return fmt.Errorf("transform target is not eventingv1alpha1.CloudEventSourceStatus type: %v", target)
 		}
+
 		switch obj := runtimeObj.(type) {
 		case *eventingv1alpha1.CloudEventSource:
-			e.log.V(1).Info("New CloudEventSource status", "status", status)
+			e.log.V(1).Info("Updating CloudEventSource status", "status", status)
 			obj.Status = status
 		case *eventingv1alpha1.ClusterCloudEventSource:
-			e.log.V(1).Info("New ClusterCloudEventSource status", "status", status)
+			e.log.V(1).Info("Updating ClusterCloudEventSource status", "status", status)
 			obj.Status = status
 		default:
+			return fmt.Errorf("unsupported CloudEventSource type: %T", runtimeObj)
 		}
+
 		return nil
 	}
 
 	if err := kedastatus.TransformObject(ctx, e.client, e.log, cloudEventSourceI, *cloudEventSourceStatus, transform); err != nil {
-		e.log.Error(err, "Failed to update CloudEventSourceStatus")
-		return err
+		e.log.Error(err, "Failed to update CloudEventSource status")
+		return fmt.Errorf("failed to update CloudEventSource status: %w", err)
 	}
 
 	return nil
 }
 
+// newEventHandlerKey generates a unique key for an event handler
 func newEventHandlerKey(kindNamespaceName string, handlerType string) string {
 	return fmt.Sprintf("%s.%s", kindNamespaceName, handlerType)
 }
 
-// getPrefixIdentifierFromKey will return the prefix identifier from the handler key. Handler key is generated by the format of "CloudEventSource.Namespace.Name.HandlerType" and the prefix identifier is "CloudEventSource.Namespace.Name"
+// getPrefixIdentifierFromKey extracts the prefix identifier (CloudEventSource.Namespace.Name) from a handler key
 func getPrefixIdentifierFromKey(handlerKey string) string {
-	keys := strings.Split(handlerKey, ".")
-	if len(keys) >= 3 {
-		return keys[0] + "." + keys[1] + "." + keys[2]
+	parts := strings.Split(handlerKey, ".")
+	if len(parts) >= 3 {
+		return strings.Join(parts[:3], ".")
 	}
 	return ""
 }
 
-// getHandlerTypeFromKey will return the handler type from the handler key. Handler key is generated by the format of "CloudEventSource.Namespace.Name.HandlerType" and the handler type is "HandlerType"
+// getHandlerTypeFromKey extracts the handler type from a handler key
 func getHandlerTypeFromKey(handlerKey string) string {
-	keys := strings.Split(handlerKey, ".")
-	if len(keys) >= 4 {
-		return keys[3]
+	parts := strings.Split(handlerKey, ".")
+	if len(parts) >= 4 {
+		return parts[3]
 	}
 	return ""
 }
 
-// getSourceNameFromKey will return the handler type from the source name. Source name is generated by the format of "CloudEventSource.Namespace.Name.HandlerType" and the source name is "Name"
+// getSourceNameFromKey extracts the source name from a handler key
 func getSourceNameFromKey(handlerKey string) string {
-	keys := strings.Split(handlerKey, ".")
-	if len(keys) >= 4 {
-		return keys[2]
+	parts := strings.Split(handlerKey, ".")
+	if len(parts) >= 3 {
+		return parts[2]
 	}
 	return ""
 }
