@@ -548,12 +548,12 @@ func TestIgnoreNullValues(t *testing.T) {
 		}`)
 
 		// Test ignoreNullValues = false
-		_, err := getValueFromSearch(jsonWithNull, "hits.total.value", false)
+		_, err := getValueFromSearch(jsonWithNull, "hits.total.value", false, "s0-elasticsearch-query")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "valueLocation must point to value of type number but got: 'Null'")
+		assert.Equal(t, err.Error(), "valueLocation for metric 's0-elasticsearch-query' must point to value of type number but got: 'Null'")
 
 		// Test ignoreNullValues = true
-		val, err := getValueFromSearch(jsonWithNull, "hits.total.value", true)
+		val, err := getValueFromSearch(jsonWithNull, "hits.total.value", true, "elasticsearch-scaler")
 		assert.NoError(t, err)
 		assert.Equal(t, float64(0), val)
 	})

@@ -185,7 +185,7 @@ func (s *elasticsearchScaler) getQueryResult(ctx context.Context) (float64, erro
 	if err != nil {
 		return 0, err
 	}
-	v, err := getValueFromSearch(b, s.metadata.ValueLocation, s.metadata.IgnoreNullValues)
+	v, err := getValueFromSearch(b, s.metadata.ValueLocation, s.metadata.IgnoreNullValues, s.metadata.MetricName)
 	if err != nil {
 		return 0, err
 	}
@@ -211,27 +211,28 @@ func buildQuery(metadata *elasticsearchMetadata) map[string]interface{} {
 	return query
 }
 
-func getValueFromSearch(body []byte, valueLocation string, ignoreNullValues bool) (float64, error) {
+func getValueFromSearch(body []byte, valueLocation string, ignoreNullValues bool, metricName string) (float64, error) {
 	r := gjson.GetBytes(body, valueLocation)
-	errorMsg := "valueLocation must point to value of type number but got: '%s'"
+	errorMsg := "valueLocation for metric '%s' must point to value of type number but got: '%%s'"
+    	formattedErrorMsg := fmt.Sprintf(errorMsg, metricName)
 
 	if r.Type == gjson.Null {
 		if ignoreNullValues {
 			return 0, nil // Return 0 when the value is null and we're ignoring null values
 		}
-		return 0, fmt.Errorf(errorMsg, "Null")
+		return 0, fmt.Errorf(formattedErrorMsg, "Null")
 	}
 
 	if r.Type == gjson.String {
 		q, err := strconv.ParseFloat(r.String(), 64)
 		if err != nil {
-			return 0, fmt.Errorf(errorMsg, r.String())
+			return 0, fmt.Errorf(formattedErrorMsg, r.String())
 		}
 		return q, nil
 	}
 
 	if r.Type != gjson.Number {
-		return 0, fmt.Errorf(errorMsg, r.Type.String())
+		return 0, fmt.Errorf(formattedErrorMsg, r.Type.String())
 	}
 	return r.Num, nil
 }
