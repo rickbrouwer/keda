@@ -81,6 +81,8 @@ const (
 	exclusiveSetTag       = "exclusiveSet"
 	rangeTag              = "range"
 	separatorTag          = "separator"
+	positiveTag           = "positive" // Nieuw: voor waarden > 0
+	minTag                = "min"      // Nieuw: voor waarden >= X
 )
 
 // Params is a struct that represents the parameter list that can be used in the keda tag
@@ -121,6 +123,12 @@ type Params struct {
 
 	// Separator is the tag parameter to define which separator will be used
 	Separator string
+
+	// Positive is the 'positive' tag parameter defining if the numeric value should be > 0
+	Positive bool
+
+	// Min is the 'min' tag parameter defining the minimum value for numeric types
+	Min *float64
 }
 
 // Name returns the name of the parameter (or comma separated list of names if it has multiple)
@@ -448,7 +456,47 @@ func setConfigValueHelper(params Params, valFromConfig string, field reflect.Val
 		field.Set(reflect.ValueOf(ifc).Elem())
 		return nil
 	}
+
+	// Voer validaties uit na het instellen van de waarde
+	if err := validateNumericConstraints(params, field); err != nil {
+		return err
+	}
+
 	return fmt.Errorf("unable to find matching parser for field type %v", field.Type())
+}
+
+// validateNumericConstraints valideert numerieke veldwaarden op basis van Params-instellingen
+func validateNumericConstraints(params Params, field reflect.Value) error {
+	// Check alleen voor numerieke typen en alleen als er validatieregels zijn gedefinieerd
+	if !(params.Positive || params.Min != nil) {
+		return nil
+	}
+
+	var floatVal float64
+
+	switch {
+	case field.CanInt():
+		floatVal = float64(field.Int())
+	case field.CanFloat():
+		floatVal = field.Float()
+	case field.CanUint():
+		floatVal = float64(field.Uint())
+	case field.Type() == reflect.TypeOf(time.Duration(0)):
+		floatVal = float64(field.Interface().(time.Duration))
+	default:
+		// Skip validatie voor niet-numerieke types
+		return nil
+	}
+
+	if params.Positive && floatVal <= 0 {
+		return fmt.Errorf("parameter %q must be positive (> 0), got %v", params.Name(), floatVal)
+	}
+
+	if params.Min != nil && floatVal < *params.Min {
+		return fmt.Errorf("parameter %q must be greater than or equal to %v, got %v", params.Name(), *params.Min, floatVal)
+	}
+
+	return nil
 }
 
 // configParamValue is a function that returns the value of the parameter based on the parsing order
@@ -543,6 +591,21 @@ func paramsFromTag(tag string, field reflect.StructField) (Params, error) {
 		case separatorTag:
 			if len(tsplit) > 1 {
 				params.Separator = strings.TrimSpace(tsplit[1])
+			}
+		case positiveTag:
+			if len(tsplit) == 1 {
+				params.Positive = true
+			}
+			if len(tsplit) > 1 {
+				params.Positive, _ = strconv.ParseBool(strings.TrimSpace(tsplit[1]))
+			}
+		case minTag:
+			if len(tsplit) > 1 {
+				minValue, err := strconv.ParseFloat(strings.TrimSpace(tsplit[1]), 64)
+				if err != nil {
+					return params, fmt.Errorf("invalid min value %s: %w", tsplit[1], err)
+				}
+				params.Min = &minValue
 			}
 		case "":
 			continue
