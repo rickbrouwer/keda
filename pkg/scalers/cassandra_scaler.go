@@ -33,7 +33,7 @@ type cassandraMetadata struct {
 	Key                        string `keda:"name=key,                        order=authParams, optional"`
 	CA                         string `keda:"name=ca,                         order=authParams, optional"`
 	ClusterIPAddress           string `keda:"name=clusterIPAddress,           order=triggerMetadata"`
-	Port                       int    `keda:"name=port,                       order=triggerMetadata, optional"`
+	Port                       int    `keda:"name=port,                       order=triggerMetadata, optional, minValue=>0"`
 	Consistency                string `keda:"name=consistency,                order=triggerMetadata, default=one"`
 	ProtocolVersion            int    `keda:"name=protocolVersion,            order=triggerMetadata, default=4"`
 	Keyspace                   string `keda:"name=keyspace,                   order=triggerMetadata"`
@@ -62,8 +62,8 @@ func (m *cassandraMetadata) Validate() error {
 	}
 
 	if m.Port == 0 {
-		return fmt.Errorf("no port given")
-	}
+        	return fmt.Errorf("port is required (either in clusterIPAddress as host:port or as separate port parameter)")
+    	}
 
 	m.ClusterIPAddress = net.JoinHostPort(m.ClusterIPAddress, fmt.Sprintf("%d", m.Port))
 	return nil

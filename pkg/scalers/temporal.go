@@ -37,15 +37,15 @@ type temporalScaler struct {
 type temporalMetadata struct {
 	Endpoint                  string   `keda:"name=endpoint,                  order=triggerMetadata;resolvedEnv"`
 	Namespace                 string   `keda:"name=namespace,                 order=triggerMetadata;resolvedEnv, default=default"`
-	ActivationTargetQueueSize int64    `keda:"name=activationTargetQueueSize, order=triggerMetadata, default=0"`
-	TargetQueueSize           int64    `keda:"name=targetQueueSize,           order=triggerMetadata, default=5"`
+	ActivationTargetQueueSize int64    `keda:"name=activationTargetQueueSize, order=triggerMetadata, default=0, minValue=0"`
+	TargetQueueSize           int64    `keda:"name=targetQueueSize,           order=triggerMetadata, default=5, minValue=>0"`
 	TaskQueue                 string   `keda:"name=taskQueue,                 order=triggerMetadata;resolvedEnv"`
 	QueueTypes                []string `keda:"name=queueTypes,                order=triggerMetadata, optional"`
 	BuildID                   string   `keda:"name=buildId,                   order=triggerMetadata;resolvedEnv, optional"`
 	AllActive                 bool     `keda:"name=selectAllActive,           order=triggerMetadata, default=false"`
 	Unversioned               bool     `keda:"name=selectUnversioned,         order=triggerMetadata, default=false"`
 	APIKey                    string   `keda:"name=apiKey,                    order=authParams;resolvedEnv, optional"`
-	MinConnectTimeout         int      `keda:"name=minConnectTimeout,         order=triggerMetadata, default=5"`
+	MinConnectTimeout         int      `keda:"name=minConnectTimeout,         order=triggerMetadata, default=5, minValue=0"`
 
 	UnsafeSsl   bool   `keda:"name=unsafeSsl,                 order=triggerMetadata, optional"`
 	Cert        string `keda:"name=cert,                      order=authParams, optional"`
@@ -57,19 +57,8 @@ type temporalMetadata struct {
 }
 
 func (a *temporalMetadata) Validate() error {
-	if a.TargetQueueSize <= 0 {
-		return fmt.Errorf("targetQueueSize must be a positive number")
-	}
-	if a.ActivationTargetQueueSize < 0 {
-		return fmt.Errorf("activationTargetQueueSize must be a positive number")
-	}
-
 	if (a.Cert == "") != (a.Key == "") {
 		return fmt.Errorf("both cert and key must be provided when using TLS")
-	}
-
-	if a.MinConnectTimeout < 0 {
-		return fmt.Errorf("minConnectTimeout must be a positive number")
 	}
 
 	return nil

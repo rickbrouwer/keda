@@ -28,8 +28,8 @@ type ibmmqScaler struct {
 type ibmmqMetadata struct {
 	Host                 string   `keda:"name=host,                 order=triggerMetadata"`
 	QueueName            []string `keda:"name=queueName;queueNames, order=triggerMetadata"`
-	QueueDepth           int64    `keda:"name=queueDepth,           order=triggerMetadata, default=20"`
-	ActivationQueueDepth int64    `keda:"name=activationQueueDepth, order=triggerMetadata, default=0"`
+	QueueDepth           int64    `keda:"name=queueDepth,           order=triggerMetadata, default=20, minValue=1"`
+	ActivationQueueDepth int64    `keda:"name=activationQueueDepth, order=triggerMetadata, default=0, minValue=0"`
 	Operation            string   `keda:"name=operation,            order=triggerMetadata, enum=max;avg;sum, default=max"`
 	Username             string   `keda:"name=username,             order=authParams;resolvedEnv;triggerMetadata"`
 	Password             string   `keda:"name=password,             order=authParams;resolvedEnv;triggerMetadata"`

@@ -81,6 +81,7 @@ const (
 	exclusiveSetTag       = "exclusiveSet"
 	rangeTag              = "range"
 	separatorTag          = "separator"
+	minValueTag           = "minValue"
 )
 
 // Params is a struct that represents the parameter list that can be used in the keda tag
@@ -121,6 +122,10 @@ type Params struct {
 
 	// Separator is the tag parameter to define which separator will be used
 	Separator string
+
+	// MinValue is the 'minValue' tag parameter defining the minimum value for the parameter
+	// If it starts with '>', it's an exclusive minimum (> x), otherwise inclusive (>= x)
+	MinValue string
 }
 
 // Name returns the name of the parameter (or comma separated list of names if it has multiple)
@@ -224,6 +229,26 @@ func (sc *ScalerConfig) setValue(field reflect.Value, params Params) error {
 			return fmt.Errorf("missing required parameter %q, no 'order' tag, provide any from %v", params.Name(), apo)
 		}
 		return fmt.Errorf("missing required parameter %q in %v", params.Name(), params.Order)
+	}
+	if exists && !params.IsNested() && params.MinValue != "" {
+		minValueStr := params.MinValue
+		exclusive := false
+
+		// Check if it's an exclusive minimum (prefix with '>')
+		if strings.HasPrefix(minValueStr, ">") {
+			exclusive = true
+			minValueStr = strings.TrimSpace(minValueStr[1:])
+		}
+		configVal, errCfg := strconv.ParseFloat(valFromConfig, 64)
+		minVal, errMin := strconv.ParseFloat(minValueStr, 64)
+
+		if errCfg == nil && errMin == nil {
+			if exclusive && configVal <= minVal {
+				return fmt.Errorf("parameter %q must be greater than %v, got %v", params.Name(), minValueStr, valFromConfig)
+			} else if !exclusive && configVal < minVal {
+				return fmt.Errorf("parameter %q must be greater than or equal to %v, got %v", params.Name(), minValueStr, valFromConfig)
+			}
+		}
 	}
 	if params.Enum != nil {
 		enumMap := make(map[string]bool)
@@ -543,6 +568,10 @@ func paramsFromTag(tag string, field reflect.StructField) (Params, error) {
 		case separatorTag:
 			if len(tsplit) > 1 {
 				params.Separator = strings.TrimSpace(tsplit[1])
+			}
+		case minValueTag:
+			if len(tsplit) > 1 {
+				params.MinValue = strings.TrimSpace(tsplit[1])
 			}
 		case "":
 			continue

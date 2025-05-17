@@ -31,7 +31,7 @@ type cronMetadata struct {
 	Start           string `keda:"name=start,           order=triggerMetadata"`
 	End             string `keda:"name=end,             order=triggerMetadata"`
 	Timezone        string `keda:"name=timezone,        order=triggerMetadata"`
-	DesiredReplicas int64  `keda:"name=desiredReplicas, order=triggerMetadata"`
+	DesiredReplicas int64  `keda:"name=desiredReplicas, order=triggerMetadata, minValue=1"`
 	TriggerIndex    int
 }
 
@@ -47,10 +47,6 @@ func (m *cronMetadata) Validate() error {
 
 	if m.Start == m.End {
 		return fmt.Errorf("start and end can not have exactly same time input")
-	}
-
-	if m.DesiredReplicas == 0 {
-		return fmt.Errorf("no desiredReplicas specified")
 	}
 
 	return nil

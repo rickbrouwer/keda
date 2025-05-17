@@ -43,7 +43,7 @@ type etcdMetadata struct {
 	WatchKey                    string   `keda:"name=watchKey,                    order=triggerMetadata"`
 	Value                       float64  `keda:"name=value,                       order=triggerMetadata"`
 	ActivationValue             float64  `keda:"name=activationValue,             order=triggerMetadata, default=0"`
-	WatchProgressNotifyInterval int      `keda:"name=watchProgressNotifyInterval, order=triggerMetadata, default=600"`
+	WatchProgressNotifyInterval int      `keda:"name=watchProgressNotifyInterval, order=triggerMetadata, default=600, minValue=>0"`
 
 	Username string `keda:"name=username,order=authParams;resolvedEnv, optional"`
 	Password string `keda:"name=password,order=authParams;resolvedEnv, optional"`
@@ -57,10 +57,6 @@ type etcdMetadata struct {
 }
 
 func (meta *etcdMetadata) Validate() error {
-	if meta.WatchProgressNotifyInterval <= 0 {
-		return errors.New("watchProgressNotifyInterval must be greater than 0")
-	}
-
 	if meta.EnableTLS == etcdTLSEnable {
 		if meta.Cert == "" && meta.Key != "" {
 			return errors.New("cert must be provided with key")

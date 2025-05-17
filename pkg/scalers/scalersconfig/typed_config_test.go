@@ -613,6 +613,256 @@ func TestDeprecatedAnnounce(t *testing.T) {
 	Expect(mockRecorder.Message).To(Equal("Scaler  info: This parameter is deprecated. Use newParam instead"))
 }
 
+// TestMinValue tests the minValue tag for both inclusive and exclusive scenarios
+func TestMinValue(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Test with valid values
+	sc := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"inclusiveMin":        "0",   // exact value, inclusive (>=0)
+			"inclusiveMinAbove":   "5",   // above min value, inclusive (>=0)
+			"exclusiveMin":        "1",   // above min value, exclusive (>0)
+			"floatInclusiveMin":   "2.5", // exact value, inclusive (>=2.5)
+			"floatInclusiveAbove": "3.5", // above min value, inclusive (>=2.5)
+			"floatExclusiveMin":   "0.1", // above min value, exclusive (>0)
+		},
+	}
+
+	type testStruct struct {
+		InclusiveMin        int     `keda:"name=inclusiveMin, order=triggerMetadata, minValue=0"`
+		InclusiveMinAbove   int     `keda:"name=inclusiveMinAbove, order=triggerMetadata, minValue=0"`
+		ExclusiveMin        int     `keda:"name=exclusiveMin, order=triggerMetadata, minValue=>0"`
+		FloatInclusiveMin   float64 `keda:"name=floatInclusiveMin, order=triggerMetadata, minValue=2.5"`
+		FloatInclusiveAbove float64 `keda:"name=floatInclusiveAbove, order=triggerMetadata, minValue=2.5"`
+		FloatExclusiveMin   float64 `keda:"name=floatExclusiveMin, order=triggerMetadata, minValue=>0"`
+	}
+
+	ts := testStruct{}
+	err := sc.TypedConfig(&ts)
+	Expect(err).To(BeNil())
+	Expect(ts.InclusiveMin).To(Equal(0))
+	Expect(ts.InclusiveMinAbove).To(Equal(5))
+	Expect(ts.ExclusiveMin).To(Equal(1))
+	Expect(ts.FloatInclusiveMin).To(Equal(2.5))
+	Expect(ts.FloatInclusiveAbove).To(Equal(3.5))
+	Expect(ts.FloatExclusiveMin).To(Equal(0.1))
+
+	// Test with invalid inclusive minimum value
+	sc2 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"inclusiveMin": "-1", // below min value, inclusive (>=0)
+			// We need to add all other required fields to make the test pass
+			"inclusiveMinAbove":   "5",
+			"exclusiveMin":        "1",
+			"floatInclusiveMin":   "2.5",
+			"floatInclusiveAbove": "3.5",
+			"floatExclusiveMin":   "0.1",
+		},
+	}
+
+	ts2 := testStruct{}
+	err = sc2.TypedConfig(&ts2)
+	Expect(err).To(MatchError(`parameter "inclusiveMin" must be greater than or equal to 0, got -1`))
+
+	// Test with invalid exclusive minimum value
+	sc3 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"inclusiveMin":        "0",
+			"inclusiveMinAbove":   "5",
+			"exclusiveMin":        "0", // exact min value, exclusive (>0)
+			"floatInclusiveMin":   "2.5",
+			"floatInclusiveAbove": "3.5",
+			"floatExclusiveMin":   "0.1",
+		},
+	}
+
+	ts3 := testStruct{}
+	err = sc3.TypedConfig(&ts3)
+	Expect(err).To(MatchError(`parameter "exclusiveMin" must be greater than 0, got 0`))
+
+	// Test with invalid inclusive float minimum value
+	sc4 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"inclusiveMin":        "0",
+			"inclusiveMinAbove":   "5",
+			"exclusiveMin":        "1",
+			"floatInclusiveMin":   "2.4", // below min value, inclusive (>=2.5)
+			"floatInclusiveAbove": "3.5",
+			"floatExclusiveMin":   "0.1",
+		},
+	}
+
+	ts4 := testStruct{}
+	err = sc4.TypedConfig(&ts4)
+	Expect(err).To(MatchError(`parameter "floatInclusiveMin" must be greater than or equal to 2.5, got 2.4`))
+
+	// Test with invalid exclusive float minimum value
+	sc5 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"inclusiveMin":        "0",
+			"inclusiveMinAbove":   "5",
+			"exclusiveMin":        "1",
+			"floatInclusiveMin":   "2.5",
+			"floatInclusiveAbove": "3.5",
+			"floatExclusiveMin":   "0", // exact min value, exclusive (>0)
+		},
+	}
+
+	ts5 := testStruct{}
+	err = sc5.TypedConfig(&ts5)
+	Expect(err).To(MatchError(`parameter "floatExclusiveMin" must be greater than 0, got 0`))
+}
+
+// TestCombinedValidation tests combining minValue with other validations
+func TestCombinedValidation(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Test with valid values
+	sc := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"validVal": "5",
+		},
+	}
+
+	type testStruct struct {
+		// This field has multiple validations (inclusive minValue and enum)
+		ValidVal int `keda:"name=validVal, order=triggerMetadata, minValue=1, enum=5;10;15"`
+	}
+
+	ts := testStruct{}
+	err := sc.TypedConfig(&ts)
+	Expect(err).To(BeNil())
+	Expect(ts.ValidVal).To(Equal(5))
+
+	// Test with exclusive minValue and enum
+	type testExclusiveStruct struct {
+		// This field has multiple validations (exclusive minValue and enum)
+		ValidVal int `keda:"name=validVal, order=triggerMetadata, minValue=>0, enum=5;10;15"`
+	}
+
+	ts2 := testExclusiveStruct{}
+	err = sc.TypedConfig(&ts2)
+	Expect(err).To(BeNil())
+	Expect(ts2.ValidVal).To(Equal(5))
+
+	// Test with value failing enum validation
+	sc2 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"validVal": "6", // Valid for minValue but not in enum
+		},
+	}
+
+	ts3 := testStruct{}
+	err = sc2.TypedConfig(&ts3)
+	Expect(err).To(MatchError(`parameter "validVal" value "6" must be one of [5 10 15]`))
+
+	// Test with value failing minValue validation
+	sc3 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"validVal": "0", // Invalid for minValue=1
+		},
+	}
+
+	ts4 := testStruct{}
+	err = sc3.TypedConfig(&ts4)
+	Expect(err).To(MatchError(`parameter "validVal" must be greater than or equal to 1, got 0`))
+}
+
+// TestValidateMinValueWithDefault tests minValue validation with default values
+func TestValidateMinValueWithDefault(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Empty trigger metadata, default values should be used and validated
+	sc := &ScalerConfig{
+		TriggerMetadata: map[string]string{},
+	}
+
+	// Test with valid default values
+	type testValidStruct struct {
+		// Valid default that passes inclusive validation
+		ValidDefault int `keda:"name=validDefault, order=triggerMetadata, optional, default=5, minValue=1"`
+
+		// Valid default that passes exclusive validation
+		ValidExclusiveDefault int `keda:"name=validExclusiveDefault, order=triggerMetadata, optional, default=1, minValue=>0"`
+	}
+
+	tsValid := testValidStruct{}
+	err := sc.TypedConfig(&tsValid)
+	Expect(err).To(BeNil())
+	Expect(tsValid.ValidDefault).To(Equal(5))
+	Expect(tsValid.ValidExclusiveDefault).To(Equal(1))
+
+	// Test with invalid default values for inclusive minValue
+	type testInvalidStruct struct {
+		// Invalid default that fails inclusive validation
+		InvalidDefault int `keda:"name=invalidDefault, order=triggerMetadata, optional, default=0, minValue=1"`
+	}
+
+	tsInvalid := testInvalidStruct{}
+	err = sc.TypedConfig(&tsInvalid)
+	Expect(err).To(MatchError(`parameter "invalidDefault" must be greater than or equal to 1, got 0`))
+
+	// Test with invalid default values for exclusive minValue
+	type testInvalidExclusiveStruct struct {
+		// Invalid default that fails exclusive validation
+		InvalidExclusiveDefault int `keda:"name=invalidExclusiveDefault, order=triggerMetadata, optional, default=0, minValue=>0"`
+	}
+
+	tsInvalidExclusive := testInvalidExclusiveStruct{}
+	err = sc.TypedConfig(&tsInvalidExclusive)
+	Expect(err).To(MatchError(`parameter "invalidExclusiveDefault" must be greater than 0, got 0`))
+}
+
+// TestOptionalMinValue tests minValue validation with optional fields
+func TestOptionalMinValue(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Test with valid values for optional fields
+	sc := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"optionalInclusiveMin": "5", // Valid for inclusive minValue=0
+			"optionalExclusiveMin": "1", // Valid for exclusive minValue=>0
+		},
+	}
+
+	type testStruct struct {
+		// These fields are optional but when provided should meet min requirements
+		OptionalInclusiveMin int `keda:"name=optionalInclusiveMin, order=triggerMetadata, optional, minValue=0"`
+		OptionalExclusiveMin int `keda:"name=optionalExclusiveMin, order=triggerMetadata, optional, minValue=>0"`
+		MissingOptionalMin   int `keda:"name=missingOptionalMin, order=triggerMetadata, optional, minValue=0"`
+	}
+
+	ts := testStruct{}
+	err := sc.TypedConfig(&ts)
+	Expect(err).To(BeNil())
+	Expect(ts.OptionalInclusiveMin).To(Equal(5))
+	Expect(ts.OptionalExclusiveMin).To(Equal(1))
+	Expect(ts.MissingOptionalMin).To(Equal(0)) // Zero value because field is missing and optional
+
+	// Test with invalid values for optional fields with inclusive minValue
+	sc2 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"optionalInclusiveMin": "-1", // Invalid for inclusive minValue=0
+		},
+	}
+
+	ts2 := testStruct{}
+	err = sc2.TypedConfig(&ts2)
+	Expect(err).To(MatchError(`parameter "optionalInclusiveMin" must be greater than or equal to 0, got -1`))
+
+	// Test with invalid values for optional fields with exclusive minValue
+	sc3 := &ScalerConfig{
+		TriggerMetadata: map[string]string{
+			"optionalExclusiveMin": "0", // Invalid for exclusive minValue=>0
+		},
+	}
+
+	ts3 := testStruct{}
+	err = sc3.TypedConfig(&ts3)
+	Expect(err).To(MatchError(`parameter "optionalExclusiveMin" must be greater than 0, got 0`))
+}
+
 // MockEventRecorder is a mock implementation of record.EventRecorder
 type MockEventRecorder struct {
 	EventCalled bool
