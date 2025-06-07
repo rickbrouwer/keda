@@ -3,6 +3,7 @@ package scalers
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	"github.com/newrelic/newrelic-client-go/v2/newrelic"
@@ -100,8 +101,8 @@ func (s *newrelicScaler) executeNewRelicQuery(ctx context.Context) (float64, err
 	}
 	// Only use the first result from the query, as the query should not be multi row
 	for _, v := range resp.Results[0] {
-		if val, ok := v.(float64); ok {
-			return val, nil
+		if val := toFloat64(v); val != nil {
+			return *val, nil
 		}
 	}
 
@@ -109,6 +110,19 @@ func (s *newrelicScaler) executeNewRelicQuery(ctx context.Context) (float64, err
 		return 0, fmt.Errorf("query returned no numeric results: %s", s.metadata.NRQL)
 	}
 	return 0, nil
+}
+
+// Helper function
+func toFloat64(v interface{}) *float64 {
+	switch val := v.(type) {
+	case float64:
+		return &val
+	case string:
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			return &f
+		}
+	}
+	return nil
 }
 
 func (s *newrelicScaler) GetMetricsAndActivity(ctx context.Context, metricName string) ([]external_metrics.ExternalMetricValue, bool, error) {
