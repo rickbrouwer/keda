@@ -181,7 +181,7 @@ func (s *prometheusScaler) GetMetricSpecForScaling(context.Context) []v2.MetricS
 		Metric: v2.MetricIdentifier{
 			Name: GenerateMetricNameWithIndex(s.metadata.triggerIndex, metricName),
 		},
-		Target: GetMetricTargetMili(s.metricType, s.metadata.Threshold),
+		Target: GetMetricTargetSmart(s.metricType, s.metadata.Threshold),
 	}
 	metricSpec := v2.MetricSpec{
 		External: externalMetric, Type: externalMetricType,
@@ -299,7 +299,7 @@ func (s *prometheusScaler) GetMetricsAndActivity(ctx context.Context, metricName
 		return []external_metrics.ExternalMetricValue{}, false, err
 	}
 
-	metric := GenerateMetricInMili(metricName, val)
+	metric := GenerateMetricSmart(metricName, val) 
 
 	return []external_metrics.ExternalMetricValue{metric}, val > s.metadata.ActivationThreshold, nil
 }
