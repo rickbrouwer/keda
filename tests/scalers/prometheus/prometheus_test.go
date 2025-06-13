@@ -149,11 +149,11 @@ spec:
   triggers:
   - type: prometheus
     metadata:
-      serverAddress: http://ggg.bbb.svc
+      serverAddress: http://{{.PrometheusServerName}}.{{.TestNamespace}}.svc
       metricName: http_requests_total
       threshold: '20000'
       activationThreshold: '10000'
-      query: sum(rate(http_requests_total{app="ccc"}[2m])) * 10000000
+      query: sum(rate(http_requests_total{app="{{.MonitoredAppName}}"}[2m])) * 10000000
 `
 
 	generateLowLevelLoadJobTemplate = `apiVersion: batch/v1
@@ -231,7 +231,7 @@ func TestPrometheusScaler(t *testing.T) {
 
 	testActivation(t, kc, data)
 	testScaleOut(t, kc, data)
-	testHPAFormattingConsistency(t, kc, data) // NEW TEST
+	testHPAFormattingConsistency(t, kc, data)
 	testScaleIn(t, kc)
 }
 
