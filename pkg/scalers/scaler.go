@@ -41,6 +41,12 @@ func init() {
 	metrics.UseNilMetrics = true
 }
 
+const (
+	// milliThreshold defines the threshold above which we use normal quantities instead of milli-quantities
+	// to avoid Kubernetes resource formatting inconsistencies with large milli values
+	milliThreshold = 1000000 // 1M
+)
+
 // Scaler interface
 type Scaler interface {
 	// GetMetricsAndActivity returns the metric values and activity for a metric Name
@@ -158,6 +164,17 @@ func GetMetricTargetMili(metricType v2.MetricTargetType, metricValue float64) v2
 	return target
 }
 
+// GetMetricTargetSmart intelligently chooses between normal and milli quantities based on value size
+// to avoid Kubernetes resource formatting inconsistencies with large milli values
+func GetMetricTargetSmart(metricType v2.MetricTargetType, metricValue float64) v2.MetricTarget {
+	if metricValue >= milliThreshold {
+		// Use normal quantities for large values to ensure consistent HPA formatting
+		return GetMetricTarget(metricType, int64(metricValue))
+	}
+	// Use milli quantities for small values to maintain precision
+	return GetMetricTargetMili(metricType, metricValue)
+}
+
 // GenerateMetricInMili returns a externalMetricValue with mili as metric scale
 func GenerateMetricInMili(metricName string, value float64) external_metrics.ExternalMetricValue {
 	valueMili := int64(value * 1000)
@@ -166,6 +183,21 @@ func GenerateMetricInMili(metricName string, value float64) external_metrics.Ext
 		Value:      *resource.NewMilliQuantity(valueMili, resource.DecimalSI),
 		Timestamp:  metav1.Now(),
 	}
+}
+
+// GenerateMetricSmart intelligently chooses between normal and milli quantities based on value size
+// to avoid Kubernetes resource formatting inconsistencies with large milli values
+func GenerateMetricSmart(metricName string, value float64) external_metrics.ExternalMetricValue {
+	if value >= milliThreshold {
+		// Use normal quantities for large values to ensure consistent HPA formatting
+		return external_metrics.ExternalMetricValue{
+			MetricName: metricName,
+			Value:      *resource.NewQuantity(int64(value), resource.DecimalSI),
+			Timestamp:  metav1.Now(),
+		}
+	}
+	// Use milli quantities for small values to maintain precision
+	return GenerateMetricInMili(metricName, value)
 }
 
 // Option represents a function type that modifies a configOptions instance.
