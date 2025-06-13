@@ -148,7 +148,7 @@ spec:
   cooldownPeriod:  1
   triggers:
   - type: prometheus
-  metadata:
+    metadata:
       serverAddress: http://ggg.bbb.svc
       metricName: http_requests_total
       threshold: '20000'
