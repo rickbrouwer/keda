@@ -4,8 +4,11 @@
 package prometheus_test
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/assert"
@@ -13,6 +16,7 @@ import (
 
 	. "github.com/kedacore/keda/v2/tests/helper"
 	prometheus "github.com/kedacore/keda/v2/tests/scalers/prometheus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Load environment variables from .env file
@@ -144,12 +148,12 @@ spec:
   cooldownPeriod:  1
   triggers:
   - type: prometheus
-    metadata:
-      serverAddress: http://{{.PrometheusServerName}}.{{.TestNamespace}}.svc
+  metadata:
+      serverAddress: http://ggg.bbb.svc
       metricName: http_requests_total
-      threshold: '20'
-      activationThreshold: '20'
-      query: sum(rate(http_requests_total{app="{{.MonitoredAppName}}"}[2m]))
+      threshold: '20000'
+      activationThreshold: '10000'
+      query: sum(rate(http_requests_total{app="ccc"}[2m])) * 10000000
 `
 
 	generateLowLevelLoadJobTemplate = `apiVersion: batch/v1
@@ -200,7 +204,7 @@ spec:
           seccompProfile:
             type: RuntimeDefault
       restartPolicy: Never
-  activeDeadlineSeconds: 100
+  activeDeadlineSeconds: 200
   backoffLimit: 2
 `
 )
@@ -227,6 +231,7 @@ func TestPrometheusScaler(t *testing.T) {
 
 	testActivation(t, kc, data)
 	testScaleOut(t, kc, data)
+	testHPAFormattingConsistency(t, kc, data) // NEW TEST
 	testScaleIn(t, kc)
 }
 
@@ -243,6 +248,69 @@ func testScaleOut(t *testing.T, kc *kubernetes.Clientset, data templateData) {
 
 	assert.True(t, WaitForDeploymentReplicaReadyCount(t, kc, deploymentName, testNamespace, maxReplicaCount, 60, 3),
 		"replica count should be %d after 3 minutes", maxReplicaCount)
+}
+
+func testHPAFormattingConsistency(t *testing.T, kc *kubernetes.Clientset, data templateData) {
+	t.Log("--- testing HPA formatting consistency ---")
+	
+	// Generate high load to get large metric values that trigger the formatting bug
+	KubectlReplaceWithTemplate(t, data, "generateLoadJobTemplate", generateLoadJobTemplate)
+	
+	// Wait for metrics to be collected and HPA to update
+	time.Sleep(45 * time.Second)
+	
+	// Get HPA name (KEDA creates HPA with this naming pattern)
+	hpaName := fmt.Sprintf("keda-hpa-%s", data.ScaledObjectName)
+	
+	// Get HPA object to check the current metrics
+	hpa, err := kc.AutoscalingV2().HorizontalPodAutoscalers(data.TestNamespace).Get(context.TODO(), hpaName, metav1.GetOptions{})
+	if err != nil {
+		t.Logf("Warning: Could not get HPA: %v", err)
+		return
+	}
+	
+	// Log HPA status for debugging
+	t.Logf("HPA Status: %+v", hpa.Status)
+	if len(hpa.Status.CurrentMetrics) > 0 {
+		currentMetric := hpa.Status.CurrentMetrics[0]
+		if currentMetric.External != nil && currentMetric.External.Current.Value != nil {
+			t.Logf("Current metric value: %s", currentMetric.External.Current.Value.String())
+		}
+	}
+	
+	// Also check via kubectl get hpa for the formatted display
+	cmd := fmt.Sprintf("kubectl get hpa %s -n %s", hpaName, data.TestNamespace)
+	output, err := ExecuteCommand(t, cmd)
+	if err != nil {
+		t.Logf("Warning: Could not get HPA via kubectl: %v", err)
+		return
+	}
+	
+	t.Logf("HPA kubectl output: %s", output)
+	
+	// Check for the formatting inconsistency bug
+	// Before fix: should show something like "19140483m/20k" (inconsistent units)
+	// After fix: should show something like "19140k/20k" (consistent units)
+	
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, hpaName) && strings.Contains(line, "TARGETS") == false {
+			// Extract the TARGETS column (usually 3rd column)
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				targets := fields[2] // Assuming TARGETS is 3rd column
+				t.Logf("HPA TARGETS field: %s", targets)
+				
+				// This test should FAIL initially due to inconsistent formatting
+				// Example: "19140483m/20k" instead of "19140k/20k"
+				if strings.Contains(targets, "m/") && strings.Contains(targets, "k") {
+					// Found the bug: mixed milli and kilo units
+					assert.Fail(t, fmt.Sprintf("HPA shows inconsistent units: %s (should be consistent k units)", targets))
+				}
+			}
+			break
+		}
+	}
 }
 
 func testScaleIn(t *testing.T, kc *kubernetes.Clientset) {
