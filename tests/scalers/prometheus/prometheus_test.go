@@ -280,19 +280,16 @@ func testHPAFormattingConsistency(t *testing.T, kc *kubernetes.Clientset, data t
 	
 	// Also check via kubectl get hpa for the formatted display
 	cmd := fmt.Sprintf("kubectl get hpa %s -n %s", hpaName, data.TestNamespace)
-	output, err := ExecuteCommand(t, cmd)
+	output, err := ExecuteCommand(cmd)  // Fixed: removed t parameter
 	if err != nil {
 		t.Logf("Warning: Could not get HPA via kubectl: %v", err)
 		return
 	}
 	
-	t.Logf("HPA kubectl output: %s", output)
+	t.Logf("HPA kubectl output: %s", string(output))  // Fixed: convert to string
 	
 	// Check for the formatting inconsistency bug
-	// Before fix: should show something like "19140483m/20k" (inconsistent units)
-	// After fix: should show something like "19140k/20k" (consistent units)
-	
-	lines := strings.Split(output, "\n")
+	lines := strings.Split(string(output), "\n")  // Fixed: convert to string
 	for _, line := range lines {
 		if strings.Contains(line, hpaName) && strings.Contains(line, "TARGETS") == false {
 			// Extract the TARGETS column (usually 3rd column)
