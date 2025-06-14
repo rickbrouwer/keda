@@ -158,6 +158,29 @@ func GetMetricTargetMili(metricType v2.MetricTargetType, metricValue float64) v2
 	return target
 }
 
+func SmartGetMetricTarget(metricType v2.MetricTargetType, metricValue float64) v2.MetricTarget {
+	if shouldUseMilli(metricValue) {
+		return GetMetricTargetMili(metricType, metricValue)
+	}
+	return GetMetricTarget(metricType, int64(metricValue))
+}
+
+func SmartGenerateMetric(metricName string, value float64) external_metrics.ExternalMetricValue {
+	if shouldUseMilli(value) {
+		return GenerateMetricInMili(metricName, value)
+	}
+	return external_metrics.ExternalMetricValue{
+		MetricName: metricName,
+		Value:      *resource.NewQuantity(int64(value), resource.DecimalSI),
+		Timestamp:  metav1.Now(),
+	}
+}
+
+func shouldUseMilli(value float64) bool {
+	// Use milli scale for values ​​< 10 or non-integers
+	return value < 10.0 || value != float64(int64(value))
+}
+
 // GenerateMetricInMili returns a externalMetricValue with mili as metric scale
 func GenerateMetricInMili(metricName string, value float64) external_metrics.ExternalMetricValue {
 	valueMili := int64(value * 1000)

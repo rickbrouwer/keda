@@ -460,6 +460,119 @@ var convertStringToTypeDataset = []convertStringToTypeTestData{
 	},
 }
 
+func TestShouldUseMilli(t *testing.T) {
+	cases := []struct {
+		name     string
+		value    float64
+		expected bool
+	}{
+		// Should use normal scale (no milli)
+		{"large integer", 20000.0, false},
+		{"medium integer", 100.0, false},
+		{"small integer above threshold", 10.0, false},
+
+		// Should use milli scale
+		{"small integer below threshold", 9.0, true},
+		{"decimal value", 0.75, true},
+		{"very small decimal", 0.001, true},
+		{"zero", 0.0, true}, // 0.0 != int64(0.0) is false, but 0.0 < 10.0 is true
+	}
+
+	for _, testCase := range cases {
+		c := testCase
+		t.Run(c.name, func(t *testing.T) {
+			result := shouldUseMilli(c.value)
+			assert.Equal(t, c.expected, result)
+		})
+	}
+}
+
+func TestSmartGetMetricTarget(t *testing.T) {
+	cases := []struct {
+		name             string
+		metricType       v2.MetricTargetType
+		metricValue      float64
+		wantmetricTarget v2.MetricTarget
+	}{
+		{
+			name:        "large value uses normal scale",
+			metricType:  v2.AverageValueMetricType,
+			metricValue: 20000.0,
+			wantmetricTarget: v2.MetricTarget{
+				Type:         v2.AverageValueMetricType,
+				AverageValue: resource.NewQuantity(20000, resource.DecimalSI),
+			},
+		},
+		{
+			name:        "small decimal uses milli scale",
+			metricType:  v2.AverageValueMetricType,
+			metricValue: 0.75,
+			wantmetricTarget: v2.MetricTarget{
+				Type:         v2.AverageValueMetricType,
+				AverageValue: resource.NewMilliQuantity(750, resource.DecimalSI),
+			},
+		},
+		{
+			name:        "small integer below 10 uses milli scale",
+			metricType:  v2.ValueMetricType,
+			metricValue: 5.0,
+			wantmetricTarget: v2.MetricTarget{
+				Type:  v2.ValueMetricType,
+				Value: resource.NewMilliQuantity(5000, resource.DecimalSI),
+			},
+		},
+	}
+
+	for _, testCase := range cases {
+		c := testCase
+		t.Run(c.name, func(t *testing.T) {
+			metricTarget := SmartGetMetricTarget(c.metricType, c.metricValue)
+			assert.Equal(t, c.wantmetricTarget, metricTarget)
+		})
+	}
+}
+
+func TestSmartGenerateMetric(t *testing.T) {
+	cases := []struct {
+		name        string
+		metricName  string
+		value       float64
+		expectMilli bool
+	}{
+		{
+			name:        "large value uses normal scale",
+			metricName:  "test-metric",
+			value:       19140.0,
+			expectMilli: false,
+		},
+		{
+			name:        "decimal value uses milli scale",
+			metricName:  "test-metric",
+			value:       0.65,
+			expectMilli: true,
+		},
+	}
+
+	for _, testCase := range cases {
+		c := testCase
+		t.Run(c.name, func(t *testing.T) {
+			result := SmartGenerateMetric(c.metricName, c.value)
+
+			assert.Equal(t, c.metricName, result.MetricName)
+
+			if c.expectMilli {
+				// Check if value is in milli scale
+				expectedMilli := resource.NewMilliQuantity(int64(c.value*1000), resource.DecimalSI)
+				assert.Equal(t, *expectedMilli, result.Value)
+			} else {
+				// Check if value is in normal scale
+				expectedNormal := resource.NewQuantity(int64(c.value), resource.DecimalSI)
+				assert.Equal(t, *expectedNormal, result.Value)
+			}
+		})
+	}
+}
+
 func TestConvertStringToType(t *testing.T) {
 	for _, testData := range convertStringToTypeDataset {
 		val, err := convertToType(testData.input, testData.targetType)

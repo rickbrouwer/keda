@@ -175,20 +175,6 @@ func (s *prometheusScaler) Close(context.Context) error {
 	return nil
 }
 
-func (s *prometheusScaler) GetMetricSpecForScaling(context.Context) []v2.MetricSpec {
-	metricName := kedautil.NormalizeString("prometheus")
-	externalMetric := &v2.ExternalMetricSource{
-		Metric: v2.MetricIdentifier{
-			Name: GenerateMetricNameWithIndex(s.metadata.triggerIndex, metricName),
-		},
-		Target: GetMetricTargetMili(s.metricType, s.metadata.Threshold),
-	}
-	metricSpec := v2.MetricSpec{
-		External: externalMetric, Type: externalMetricType,
-	}
-	return []v2.MetricSpec{metricSpec}
-}
-
 func (s *prometheusScaler) ExecutePromQuery(ctx context.Context) (float64, error) {
 	t := time.Now().UTC().Format(time.RFC3339)
 	queryEscaped := url_pkg.QueryEscape(s.metadata.Query)
@@ -292,6 +278,20 @@ func (s *prometheusScaler) ExecutePromQuery(ctx context.Context) (float64, error
 	return v, nil
 }
 
+func (s *prometheusScaler) GetMetricSpecForScaling(context.Context) []v2.MetricSpec {
+	metricName := kedautil.NormalizeString("prometheus")
+	externalMetric := &v2.ExternalMetricSource{
+		Metric: v2.MetricIdentifier{
+			Name: GenerateMetricNameWithIndex(s.metadata.triggerIndex, metricName),
+		},
+		Target: SmartGetMetricTarget(s.metricType, s.metadata.Threshold),
+	}
+	metricSpec := v2.MetricSpec{
+		External: externalMetric, Type: externalMetricType,
+	}
+	return []v2.MetricSpec{metricSpec}
+}
+
 func (s *prometheusScaler) GetMetricsAndActivity(ctx context.Context, metricName string) ([]external_metrics.ExternalMetricValue, bool, error) {
 	val, err := s.ExecutePromQuery(ctx)
 	if err != nil {
@@ -299,7 +299,7 @@ func (s *prometheusScaler) GetMetricsAndActivity(ctx context.Context, metricName
 		return []external_metrics.ExternalMetricValue{}, false, err
 	}
 
-	metric := GenerateMetricInMili(metricName, val)
+	metric := SmartGenerateMetric(metricName, val)
 
 	return []external_metrics.ExternalMetricValue{metric}, val > s.metadata.ActivationThreshold, nil
 }
