@@ -75,10 +75,11 @@ type scaleHandler struct {
 	scalerCachesLock         *sync.RWMutex
 	scaledObjectsMetricCache metricscache.MetricsCache
 	authClientSet            *authentication.AuthClientSet
+	hpaSyncPeriod            time.Duration
 }
 
 // NewScaleHandler creates a ScaleHandler object
-func NewScaleHandler(client client.Client, scaleClient scale.ScalesGetter, reconcilerScheme *runtime.Scheme, globalHTTPTimeout time.Duration, recorder record.EventRecorder, authClientSet *authentication.AuthClientSet) ScaleHandler {
+func NewScaleHandler(client client.Client, scaleClient scale.ScalesGetter, reconcilerScheme *runtime.Scheme, globalHTTPTimeout time.Duration, recorder record.EventRecorder, authClientSet *authentication.AuthClientSet, hpaSyncPeriod time.Duration) ScaleHandler {
 	return &scaleHandler{
 		client:                   client,
 		scaleLoopContexts:        &sync.Map{},
@@ -89,6 +90,7 @@ func NewScaleHandler(client client.Client, scaleClient scale.ScalesGetter, recon
 		scalerCachesLock:         &sync.RWMutex{},
 		scaledObjectsMetricCache: metricscache.NewMetricsCache(),
 		authClientSet:            authClientSet,
+		hpaSyncPeriod:            hpaSyncPeriod,
 	}
 }
 
@@ -166,8 +168,9 @@ func (h *scaleHandler) DeleteScalableObject(ctx context.Context, scalableObject 
 func (h *scaleHandler) startScaleLoop(ctx context.Context, withTriggers *kedav1alpha1.WithTriggers, scalableObject interface{}, scalingMutex sync.Locker, isScaledObject bool) {
 	logger := log.WithValues("type", withTriggers.Kind, "namespace", withTriggers.Namespace, "name", withTriggers.Name)
 
+	// Start with base polling interval
 	pollingInterval := withTriggers.GetPollingInterval()
-	logger.V(1).Info("Watching with pollingInterval", "PollingInterval", pollingInterval)
+	logger.V(1).Info("Starting adaptive polling loop", "initialPollingInterval", pollingInterval)
 
 	next := time.Now()
 
@@ -180,7 +183,12 @@ func (h *scaleHandler) startScaleLoop(ctx context.Context, withTriggers *kedav1a
 		tmr := time.NewTimer(pollingInterval)
 		next = time.Now().Add(pollingInterval)
 
-		h.checkScalers(ctx, scalableObject, scalingMutex)
+		// Check scalers and get activity state
+		isActive := h.checkScalers(ctx, scalableObject, scalingMutex)
+
+		// Determine next polling interval based on activity
+		pollingInterval = h.getAdaptivePollingInterval(withTriggers, isActive)
+		logger.V(1).Info("Using adaptive polling interval", "isActive", isActive, "nextPollingInterval", pollingInterval)
 
 		select {
 		case <-tmr.C:
@@ -231,7 +239,8 @@ func (h *scaleHandler) startPushScalers(ctx context.Context, withTriggers *kedav
 
 // checkScalers contains the main logic for the ScaleHandler scaling logic.
 // It'll check each trigger active status then call RequestScale
-func (h *scaleHandler) checkScalers(ctx context.Context, scalableObject interface{}, scalingMutex sync.Locker) {
+// Returns whether the scalable object is currently active
+func (h *scaleHandler) checkScalers(ctx context.Context, scalableObject interface{}, scalingMutex sync.Locker) bool {
 	scalingMutex.Lock()
 	defer scalingMutex.Unlock()
 	switch obj := scalableObject.(type) {
@@ -239,12 +248,12 @@ func (h *scaleHandler) checkScalers(ctx context.Context, scalableObject interfac
 		err := h.client.Get(ctx, types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace}, obj)
 		if err != nil {
 			log.Error(err, "error getting scaledObject", "object", scalableObject)
-			return
+			return false
 		}
 		isActive, isError, metricsRecords, activeTriggers, err := h.getScaledObjectState(ctx, obj)
 		if err != nil {
 			log.Error(err, "error getting state of scaledObject", "scaledObject.Namespace", obj.Namespace, "scaledObject.Name", obj.Name)
-			return
+			return false
 		}
 
 		h.scaleExecutor.RequestScale(ctx, obj, isActive, isError, &executor.ScaleExecutorOptions{ActiveTriggers: activeTriggers})
@@ -253,16 +262,22 @@ func (h *scaleHandler) checkScalers(ctx context.Context, scalableObject interfac
 			log.V(1).Info("Storing metrics to cache", "scaledObject.Namespace", obj.Namespace, "scaledObject.Name", obj.Name, "metricsRecords", metricsRecords)
 			h.scaledObjectsMetricCache.StoreRecords(obj.GenerateIdentifier(), metricsRecords)
 		}
+
+		return isActive
 	case *kedav1alpha1.ScaledJob:
 		err := h.client.Get(ctx, types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace}, obj)
 		if err != nil {
 			log.Error(err, "error getting scaledJob", "scaledJob.Namespace", obj.Namespace, "scaledJob.Name", obj.Name)
-			return
+			return false
 		}
 
 		isActive, isError, scaleTo, maxScale := h.isScaledJobActive(ctx, obj)
 		h.scaleExecutor.RequestJobScale(ctx, obj, isActive, isError, scaleTo, maxScale)
+
+		return isActive
 	}
+
+	return false
 }
 
 /// --------------------------------------------------------------------------- ///
@@ -933,4 +948,20 @@ func (h *scaleHandler) getTrueMetricArray(ctx context.Context, metricName string
 		return so.Status.ExternalMetricNames, nil
 	}
 	return []string{metricName}, nil
+}
+
+// getAdaptivePollingInterval returns polling interval based on activity state
+func (h *scaleHandler) getAdaptivePollingInterval(withTriggers *kedav1alpha1.WithTriggers, isActive bool) time.Duration {
+	baseInterval := withTriggers.GetPollingInterval()
+
+	if isActive {
+		// ScaledObject is active (1+ replicas or needs scaling): use longer interval to avoid unnecessary polling
+		if h.hpaSyncPeriod > baseInterval {
+			return h.hpaSyncPeriod
+		}
+		return baseInterval
+	}
+
+	// ScaledObject is inactive (0 replicas): KEDA manages 0→1 scaling, use configured polling interval
+	return baseInterval
 }

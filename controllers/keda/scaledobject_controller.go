@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
@@ -68,11 +69,12 @@ import (
 
 // ScaledObjectReconciler reconciles a ScaledObject object
 type ScaledObjectReconciler struct {
-	Client       client.Client
-	Scheme       *runtime.Scheme
-	ScaleClient  scale.ScalesGetter
-	ScaleHandler scaling.ScaleHandler
-	EventEmitter eventemitter.EventHandler
+	Client        client.Client
+	Scheme        *runtime.Scheme
+	ScaleClient   scale.ScalesGetter
+	ScaleHandler  scaling.ScaleHandler
+	EventEmitter  eventemitter.EventHandler
+	HPASyncPeriod time.Duration
 
 	restMapper               meta.RESTMapper
 	scaledObjectsGenerations *sync.Map

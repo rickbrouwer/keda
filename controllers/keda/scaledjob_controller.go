@@ -60,6 +60,7 @@ type ScaledJobReconciler struct {
 	GlobalHTTPTimeout time.Duration
 	EventEmitter      eventemitter.EventHandler
 	AuthClientSet     *authentication.AuthClientSet
+	HPASyncPeriod     time.Duration
 
 	scaledJobGenerations *sync.Map
 	scaleHandler         scaling.ScaleHandler
@@ -82,7 +83,7 @@ func init() {
 
 // SetupWithManager initializes the ScaledJobReconciler instance and starts a new controller managed by the passed Manager instance.
 func (r *ScaledJobReconciler) SetupWithManager(mgr ctrl.Manager, options controller.Options) error {
-	r.scaleHandler = scaling.NewScaleHandler(mgr.GetClient(), nil, mgr.GetScheme(), r.GlobalHTTPTimeout, mgr.GetEventRecorderFor("scale-handler"), r.AuthClientSet)
+	r.scaleHandler = scaling.NewScaleHandler(mgr.GetClient(), nil, mgr.GetScheme(), r.GlobalHTTPTimeout, mgr.GetEventRecorderFor("scale-handler"), r.AuthClientSet, r.HPASyncPeriod)
 	r.scaledJobGenerations = &sync.Map{}
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(options).

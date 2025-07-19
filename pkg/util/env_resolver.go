@@ -109,3 +109,20 @@ func GetBoundServiceAccountTokenExpiry() (*time.Duration, error) {
 	}
 	return expiry, nil
 }
+
+// GetHPASyncPeriod retrieves the HPA sync period from environment variable
+// Falls back to Kubernetes default of 15 seconds if not specified
+func GetHPASyncPeriod() (time.Duration, error) {
+	period, err := ResolveOsEnvDuration("KEDA_HPA_SYNC_PERIOD")
+	if err != nil {
+		return 0, err
+	}
+
+	// If not set, use Kubernetes default
+	if period == nil {
+		defaultPeriod := 15 * time.Second
+		return defaultPeriod, nil
+	}
+
+	return *period, nil
+}

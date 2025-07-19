@@ -202,6 +202,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	hpaSyncPeriod, err := kedautil.GetHPASyncPeriod()
+	if err != nil {
+		setupLog.Error(err, "invalid KEDA_HPA_SYNC_PERIOD")
+		os.Exit(1)
+	}
+
 	_, err = kedautil.GetBoundServiceAccountTokenExpiry()
 	if err != nil {
 		setupLog.Error(err, "invalid "+kedautil.BoundServiceAccountTokenExpiryEnvVar)
@@ -237,7 +243,7 @@ func main() {
 		SecretLister:    secretInformer.Lister(),
 	}
 
-	scaledHandler := scaling.NewScaleHandler(mgr.GetClient(), scaleClient, mgr.GetScheme(), globalHTTPTimeout, eventRecorder, authClientSet)
+	scaledHandler := scaling.NewScaleHandler(mgr.GetClient(), scaleClient, mgr.GetScheme(), globalHTTPTimeout, eventRecorder, authClientSet, hpaSyncPeriod)
 	eventEmitter := eventemitter.NewEventEmitter(mgr.GetClient(), eventRecorder, k8sClusterName, authClientSet)
 
 	if err = (&kedacontrollers.ScaledObjectReconciler{
@@ -246,6 +252,7 @@ func main() {
 		ScaleClient:  scaleClient,
 		ScaleHandler: scaledHandler,
 		EventEmitter: eventEmitter,
+		HPASyncPeriod:     hpaSyncPeriod,
 	}).SetupWithManager(mgr, controller.Options{
 		MaxConcurrentReconciles: scaledObjectMaxReconciles,
 	}); err != nil {
@@ -258,6 +265,7 @@ func main() {
 		GlobalHTTPTimeout: globalHTTPTimeout,
 		EventEmitter:      eventEmitter,
 		AuthClientSet:     authClientSet,
+		HPASyncPeriod:     hpaSyncPeriod,
 	}).SetupWithManager(mgr, controller.Options{
 		MaxConcurrentReconciles: scaledJobMaxReconciles,
 	}); err != nil {
