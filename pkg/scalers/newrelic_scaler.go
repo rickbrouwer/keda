@@ -2,11 +2,13 @@ package scalers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/newrelic/newrelic-client-go/v2/newrelic"
 	"github.com/newrelic/newrelic-client-go/v2/pkg/nrdb"
+	"github.com/tidwall/gjson"
 	v2 "k8s.io/api/autoscaling/v2"
 	"k8s.io/metrics/pkg/apis/external_metrics"
 
@@ -33,6 +35,7 @@ type newrelicMetadata struct {
 	NRQL                string  `keda:"name=nrql,                order=triggerMetadata"`
 	Threshold           float64 `keda:"name=threshold,           order=triggerMetadata"`
 	ActivationThreshold float64 `keda:"name=activationThreshold, order=triggerMetadata, default=0"`
+	ValuePath           string  `keda:"name=valuePath,           order=triggerMetadata, default=0"`
 	TriggerIndex        int
 }
 
@@ -98,19 +101,39 @@ func (s *newrelicScaler) executeNewRelicQuery(ctx context.Context) (float64, err
 		}
 		return 0, nil
 	}
-	// Only use the first result from the query, as the query should not be multi row
-	for _, v := range resp.Results[0] {
-		if val, ok := v.(float64); ok {
-			return val, nil
-		}
-	}
 
-	if s.metadata.NoDataError {
-		return 0, fmt.Errorf("query returned no numeric results: %s", s.metadata.NRQL)
-	}
-	return 0, nil
+	return s.extractValueWithGJSON(resp.Results)
 }
 
+func (s *newrelicScaler) extractValueWithGJSON(results []map[string]interface{}) (float64, error) {
+	// Convert results to JSON for GJSON processing
+	jsonBytes, err := json.Marshal(results)
+	if err != nil {
+		return 0, fmt.Errorf("error marshaling results to JSON: %w", err)
+	}
+
+	// Build the full GJSON path: results[0].valuePath
+	fullPath := fmt.Sprintf("0.%s", s.metadata.ValuePath)
+	
+	// Use GJSON to extract value using the path
+	result := gjson.GetBytes(jsonBytes, fullPath)
+	if !result.Exists() {
+		if s.metadata.NoDataError {
+			return 0, fmt.Errorf("no value found at path '%s' in query results: %s", fullPath, s.metadata.NRQL)
+		}
+		return 0, nil
+	}
+
+	// Must be a number
+	if !result.IsNumber() {
+		if s.metadata.NoDataError {
+			return 0, fmt.Errorf("value at path '%s' is not a number in query results: %s", fullPath, s.metadata.NRQL)
+		}
+		return 0, nil
+	}
+
+	return result.Float(), nil
+}
 func (s *newrelicScaler) GetMetricsAndActivity(ctx context.Context, metricName string) ([]external_metrics.ExternalMetricValue, bool, error) {
 	val, err := s.executeNewRelicQuery(ctx)
 	if err != nil {
