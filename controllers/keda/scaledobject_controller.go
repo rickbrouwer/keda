@@ -226,35 +226,94 @@ func (r *ScaledObjectReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 // reconcileScaledObject implements reconciler logic for ScaledObject
 func (r *ScaledObjectReconciler) reconcileScaledObject(ctx context.Context, logger logr.Logger, scaledObject *kedav1alpha1.ScaledObject, conditions *kedav1alpha1.Conditions) (string, error) {
-	// Check the presence of "autoscaling.keda.sh/paused" annotation on the scaledObject (since the presence of this annotation will pause
-	// autoscaling no matter what number of replicas is provided), and if so, stop the scale loop and delete the HPA on the scaled object.
-	needsToPause := scaledObject.NeedToBePausedByAnnotation()
-	if needsToPause {
-		scaledToPausedCount := true
-		if conditions.GetPausedCondition().Status == metav1.ConditionTrue {
-			// If scaledobject is in paused condition but replica count is not equal to paused replica count, the following scaling logic needs to be trigger again.
-			scaledToPausedCount = r.checkIfTargetResourceReachPausedCount(ctx, logger, scaledObject)
-			if scaledToPausedCount {
-				return kedav1alpha1.ScaledObjectConditionReadySuccessMessage, nil
-			}
-		}
-		if scaledToPausedCount {
-			msg := kedav1alpha1.ScaledObjectConditionPausedMessage
-			if err := r.stopScaleLoop(ctx, logger, scaledObject); err != nil {
-				msg = "failed to stop the scale loop for paused ScaledObject"
-				return msg, err
-			}
-			if deleted, err := r.ensureHPAForScaledObjectIsDeleted(ctx, logger, scaledObject); !deleted {
-				msg = "failed to delete HPA for paused ScaledObject"
-				return msg, err
-			}
-			conditions.SetPausedCondition(metav1.ConditionTrue, kedav1alpha1.ScaledObjectConditionPausedReason, msg)
-			return msg, nil
-		}
-	} else if conditions.GetPausedCondition().Status == metav1.ConditionTrue {
-		conditions.SetPausedCondition(metav1.ConditionFalse, "ScaledObjectUnpaused", "pause annotation removed for ScaledObject")
+	// Determine current pause state from annotations
+	shouldBePausedByAnnotation := r.shouldBePausedByPauseAnnotation(scaledObject)
+	hasPausedReplicasAnnotation := scaledObject.HasPausedReplicaAnnotation()
+	shouldBePaused := shouldBePausedByAnnotation || hasPausedReplicasAnnotation
+	currentlyPaused := conditions.GetPausedCondition().Status == metav1.ConditionTrue
+
+	logger.V(1).Info("Analyzing pause state", 
+		"shouldBePausedByAnnotation", shouldBePausedByAnnotation,
+		"hasPausedReplicasAnnotation", hasPausedReplicasAnnotation,
+		"shouldBePaused", shouldBePaused,
+		"currentlyPaused", currentlyPaused)
+
+	// Handle pause/unpause state transitions
+	if shouldBePaused {
+		// ScaledObject should be paused (either new pause or annotation change)
+		return r.handlePausedScaledObject(ctx, logger, scaledObject, conditions, currentlyPaused)
+	} else if currentlyPaused {
+		// ScaledObject should be unpaused (annotations removed or set to false)
+		return r.handleUnpausedScaledObject(ctx, logger, scaledObject, conditions)
 	}
 
+	// Normal scaling logic for non-paused ScaledObjects
+	return r.handleNormalScaling(ctx, logger, scaledObject, conditions)
+}
+
+// shouldBePausedByPauseAnnotation checks if ScaledObject should be paused based on pause annotation value
+func (r *ScaledObjectReconciler) shouldBePausedByPauseAnnotation(scaledObject *kedav1alpha1.ScaledObject) bool {
+	if scaledObject.GetAnnotations() == nil {
+		return false
+	}
+	
+	pauseValue, exists := scaledObject.GetAnnotations()[kedav1alpha1.PausedAnnotation]
+	if !exists {
+		return false
+	}
+	
+	// Parse the annotation value. Only "true" should pause, everything else (including "false") should not pause
+	return pauseValue == "true"
+}
+
+// handlePausedScaledObject handles ScaledObjects that should be paused
+func (r *ScaledObjectReconciler) handlePausedScaledObject(ctx context.Context, logger logr.Logger, scaledObject *kedav1alpha1.ScaledObject, conditions *kedav1alpha1.Conditions, currentlyPaused bool) (string, error) {
+	logger.V(1).Info("Handling paused ScaledObject", "currentlyPaused", currentlyPaused)
+
+	// Check if we need to scale to the paused replica count
+	scaledToPausedCount := true
+	if hasPausedReplicasAnnotation := scaledObject.HasPausedReplicaAnnotation(); hasPausedReplicasAnnotation {
+		scaledToPausedCount = r.checkIfTargetResourceReachPausedCount(ctx, logger, scaledObject)
+		
+		// If not scaled to paused count yet, we need to continue scaling logic
+		if !scaledToPausedCount {
+			logger.Info("ScaledObject paused but target replica count not reached yet, continuing scaling")
+			// We still set paused condition but allow scaling to continue
+			conditions.SetPausedCondition(metav1.ConditionTrue, kedav1alpha1.ScaledObjectConditionPausedReason, "ScaledObject is paused, scaling to target replica count")
+			// Continue with normal scaling logic but mark as paused
+			return r.handleNormalScaling(ctx, logger, scaledObject, conditions)
+		}
+	}
+
+	// ScaledObject is properly paused, stop scaling and delete HPA
+	logger.Info("ScaledObject is fully paused, stopping scale loop and removing HPA")
+	msg := kedav1alpha1.ScaledObjectConditionPausedMessage
+	if err := r.stopScaleLoop(ctx, logger, scaledObject); err != nil {
+		msg = "failed to stop the scale loop for paused ScaledObject"
+		return msg, err
+	}
+	
+	if deleted, err := r.ensureHPAForScaledObjectIsDeleted(ctx, logger, scaledObject); !deleted {
+		msg = "failed to delete HPA for paused ScaledObject"
+		return msg, err
+	}
+	
+	conditions.SetPausedCondition(metav1.ConditionTrue, kedav1alpha1.ScaledObjectConditionPausedReason, msg)
+	return msg, nil
+}
+
+// handleUnpausedScaledObject handles transition from paused to unpaused state
+func (r *ScaledObjectReconciler) handleUnpausedScaledObject(ctx context.Context, logger logr.Logger, scaledObject *kedav1alpha1.ScaledObject, conditions *kedav1alpha1.Conditions) (string, error) {
+	// Transitioning from paused to unpaused state
+	logger.Info("ScaledObject unpaused, resuming normal scaling operations")
+	conditions.SetPausedCondition(metav1.ConditionFalse, "ScaledObjectUnpaused", "pause annotations removed for ScaledObject")
+	
+	// Continue with normal scaling logic to restore HPA and scaling
+	return r.handleNormalScaling(ctx, logger, scaledObject, conditions)
+}
+
+// handleNormalScaling handles normal scaling logic for active ScaledObjects
+func (r *ScaledObjectReconciler) handleNormalScaling(ctx context.Context, logger logr.Logger, scaledObject *kedav1alpha1.ScaledObject, conditions *kedav1alpha1.Conditions) (string, error) {
 	// Check scale target Name is specified
 	if scaledObject.Spec.ScaleTargetRef.Name == "" {
 		err := fmt.Errorf("ScaledObject.spec.scaleTargetRef.name is missing")
@@ -293,11 +352,10 @@ func (r *ScaledObjectReconciler) reconcileScaledObject(ctx context.Context, logg
 	if err != nil {
 		return "failed to ensure HPA is correctly created for ScaledObject", err
 	}
+	
 	scaleObjectSpecChanged := false
 	if !newHPACreated {
-		// Let's Check whether ScaledObject generation was changed, i.e. there were changes in ScaledObject.Spec
-		// if it was changed we should start a new ScaleLoop
-		// (we can omit this check if a new HPA was created, which fires new ScaleLoop anyway)
+		// Check whether ScaledObject generation was changed, i.e. there were changes in ScaledObject.Spec
 		scaleObjectSpecChanged, err = r.scaledObjectGenerationChanged(logger, scaledObject)
 		if err != nil {
 			return "failed to check whether ScaledObject's Generation was changed", err
@@ -306,14 +364,12 @@ func (r *ScaledObjectReconciler) reconcileScaledObject(ctx context.Context, logg
 
 	// Notify ScaleHandler if a new HPA was created or if ScaledObject was updated
 	if newHPACreated || scaleObjectSpecChanged {
-		if r.requestScaleLoop(ctx, logger, scaledObject) != nil {
+		if err := r.requestScaleLoop(ctx, logger, scaledObject); err != nil {
 			return "failed to start a new scale loop with scaling logic", err
 		}
 		logger.Info("Initializing Scaling logic according to ScaledObject Specification")
 	}
-	if scaledObject.HasPausedReplicaAnnotation() && conditions.GetPausedCondition().Status != metav1.ConditionTrue {
-		return "ScaledObject paused replicas are being scaled", fmt.Errorf("ScaledObject paused replicas are being scaled")
-	}
+
 	return kedav1alpha1.ScaledObjectConditionReadySuccessMessage, nil
 }
 
@@ -337,10 +393,13 @@ func (r *ScaledObjectReconciler) ensureScaledObjectLabel(ctx context.Context, lo
 func (r *ScaledObjectReconciler) checkIfTargetResourceReachPausedCount(ctx context.Context, logger logr.Logger, scaledObject *kedav1alpha1.ScaledObject) bool {
 	pausedReplicaCount, pausedReplicasAnnotationFound := scaledObject.GetAnnotations()[kedav1alpha1.PausedReplicasAnnotation]
 	if !pausedReplicasAnnotationFound {
+		logger.V(1).Info("No paused-replicas annotation found")
 		return true
 	}
+	
 	pausedReplicaCountNum, err := strconv.ParseInt(pausedReplicaCount, 10, 32)
 	if err != nil {
+		logger.Error(err, "Failed to parse paused-replicas annotation", "value", pausedReplicaCount)
 		return true
 	}
 
@@ -349,17 +408,22 @@ func (r *ScaledObjectReconciler) checkIfTargetResourceReachPausedCount(ctx conte
 		logger.Error(err, "failed to parse Group, Version, Kind, Resource", "apiVersion", scaledObject.Spec.ScaleTargetRef.APIVersion, "kind", scaledObject.Spec.ScaleTargetRef.Kind)
 		return true
 	}
-	gvkString := gvkr.GVKString()
-	logger.V(1).Info("Parsed Group, Version, Kind, Resource", "GVK", gvkString, "Resource", gvkr.Resource)
 
-	// check if we already know.
-	var scale *autoscalingv1.Scale
+	// check current replica count
 	gr := gvkr.GroupResource()
 	scale, errScale := (r.ScaleClient).Scales(scaledObject.Namespace).Get(ctx, gr, scaledObject.Spec.ScaleTargetRef.Name, metav1.GetOptions{})
 	if errScale != nil {
+		logger.Error(errScale, "Failed to get scale resource")
 		return true
 	}
-	return scale.Spec.Replicas == int32(pausedReplicaCountNum)
+	
+	reached := scale.Spec.Replicas == int32(pausedReplicaCountNum)
+	logger.V(1).Info("Checking if target resource reached paused count", 
+		"currentReplicas", scale.Spec.Replicas, 
+		"targetPausedReplicas", pausedReplicaCountNum,
+		"reached", reached)
+		
+	return reached
 }
 
 // checkTargetResourceIsScalable checks if resource targeted for scaling exists and exposes /scale subresource
