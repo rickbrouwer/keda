@@ -131,13 +131,24 @@ func TestCustomScalingStrategy(t *testing.T) {
 func TestAccurateScalingStrategy(t *testing.T) {
 	logger := logf.Log.WithName("ScaledJobTest")
 	strategy := NewScalingStrategy(logger, getMockScaledJobWithStrategy("accurate", "accurate", 0, "0"))
-	// maxScale doesn't exceed MaxReplicaCount. You can ignore on this sceanrio
-	assert.Equal(t, int64(3), maxScaleValue(strategy.GetEffectiveMaxScale(3, 2, 0, 5, 1)))
+
+	// maxScale=3, running=2, pending=0, need 1 more job
+	assert.Equal(t, int64(1), maxScaleValue(strategy.GetEffectiveMaxScale(3, 2, 0, 5, 1)))
+	
+	// maxScale=5, running=2, pending=0, need 3 more jobs  
 	assert.Equal(t, int64(3), maxScaleValue(strategy.GetEffectiveMaxScale(5, 2, 0, 5, 1)))
 
-	// Test with 2 pending jobs
-	assert.Equal(t, int64(1), maxScaleValue(strategy.GetEffectiveMaxScale(3, 4, 2, 10, 1)))
-	assert.Equal(t, int64(1), maxScaleValue(strategy.GetEffectiveMaxScale(5, 4, 2, 5, 1)))
+	// maxScale=3, running=4, pending=2, total active=6, maxScale=3, so 0 new jobs
+	assert.Equal(t, int64(0), maxScaleValue(strategy.GetEffectiveMaxScale(3, 4, 2, 10, 1)))
+	
+	// maxScale=5, running=4, pending=2, total active=6, maxScale=5, so 0 new jobs  
+	assert.Equal(t, int64(0), maxScaleValue(strategy.GetEffectiveMaxScale(5, 4, 2, 5, 1)))
+
+	// maxScale=10, running=3, pending=2, need 5 more jobs
+	assert.Equal(t, int64(5), maxScaleValue(strategy.GetEffectiveMaxScale(10, 3, 2, 15, 1)))
+	
+	// maxScale=8, running=3, pending=2 -> need 3 more, but maxReplicaCount=6 limits to 1
+	assert.Equal(t, int64(1), maxScaleValue(strategy.GetEffectiveMaxScale(8, 3, 2, 6, 1)))
 }
 
 func TestEagerScalingStrategy(t *testing.T) {
@@ -406,6 +417,60 @@ func TestAreAllPendingPodConditionsFulfilledBugScenario(t *testing.T) {
 
 	// Should be 0, because both pods have all required conditions
 	assert.Equal(t, int64(0), result, "Job with pods having all conditions should not be pending")
+}
+
+// Test to check issue #7016
+func TestAccurateScalingStrategyBugScenarios(t *testing.T) {
+	logger := logf.Log.WithName("ScaledJobTest")
+	strategy := NewScalingStrategy(logger, getMockScaledJobWithStrategy("accurate", "accurate", 0, "0"))
+
+	// 543 running jobs, 0 pending, maxScale 538
+	// Should return 0 (no new jobs needed), but currently returns 538
+	maxScale, scaleTo := strategy.GetEffectiveMaxScale(538, 543, 0, 1000, 538)
+	assert.Equal(t, int64(0), maxScale, "Should not create new jobs when we already have more running jobs than maxScale")
+	assert.Equal(t, int64(538), scaleTo, "scaleTo should remain unchanged")
+
+	// 1076 running, 266 pending, maxScale ~537
+	// Should return 0 (no new jobs needed)
+	maxScale, scaleTo = strategy.GetEffectiveMaxScale(537, 1076, 266, 1500, 537)
+	assert.Equal(t, int64(0), maxScale, "Should not create new jobs when total active jobs exceed maxScale")
+	assert.Equal(t, int64(537), scaleTo, "scaleTo should remain unchanged")
+
+	// Need more jobs
+	// 5 running, 2 pending, maxScale 10, should create 3 more jobs
+	maxScale, scaleTo = strategy.GetEffectiveMaxScale(10, 5, 2, 15, 10)
+	assert.Equal(t, int64(3), maxScale, "Should create 3 jobs to reach maxScale of 10")
+	assert.Equal(t, int64(10), scaleTo, "scaleTo should remain unchanged")
+
+	// Respect maxReplicaCount limit
+	// 5 running, 2 pending, maxScale 20, but maxReplicaCount is 10
+	maxScale, scaleTo = strategy.GetEffectiveMaxScale(20, 5, 2, 10, 20)
+	assert.Equal(t, int64(3), maxScale, "Should respect maxReplicaCount limit")
+	assert.Equal(t, int64(20), scaleTo, "scaleTo should remain unchanged")
+
+	// Exact match
+	// 5 running, 2 pending, maxScale 7, should create 0 jobs
+	maxScale, scaleTo = strategy.GetEffectiveMaxScale(7, 5, 2, 15, 7)
+	assert.Equal(t, int64(0), maxScale, "Should not create jobs when active jobs equal maxScale")
+	assert.Equal(t, int64(7), scaleTo, "scaleTo should remain unchanged")
+
+	// MaxReplicaCount exceeded by active jobs
+	// 8 running, 3 pending, maxScale 5, maxReplicaCount 10, should create 0
+	maxScale, scaleTo = strategy.GetEffectiveMaxScale(5, 8, 3, 10, 5)
+	assert.Equal(t, int64(0), maxScale, "Should not create jobs when active jobs exceed maxScale")
+	assert.Equal(t, int64(5), scaleTo, "scaleTo should remain unchanged")
+
+	// MaxReplicaCount constraint forces lower effective scale
+	// 2 running, 1 pending, maxScale 10, but maxReplicaCount is 5, should create 2
+	maxScale, scaleTo = strategy.GetEffectiveMaxScale(10, 2, 1, 5, 10)
+	assert.Equal(t, int64(2), maxScale, "Should create 2 jobs to reach maxReplicaCount of 5")
+	assert.Equal(t, int64(10), scaleTo, "scaleTo should remain unchanged")
+
+	// Zero case
+	// 0 running, 0 pending, maxScale 5, should create 5
+	maxScale, scaleTo = strategy.GetEffectiveMaxScale(5, 0, 0, 10, 5)
+	assert.Equal(t, int64(5), maxScale, "Should create 5 jobs when no active jobs exist")
+	assert.Equal(t, int64(5), scaleTo, "scaleTo should remain unchanged")
 }
 
 func TestCreateJobs(t *testing.T) {
