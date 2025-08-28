@@ -478,15 +478,13 @@ type accurateScalingStrategy struct {
 }
 
 func (s accurateScalingStrategy) GetEffectiveMaxScale(maxScale, runningJobCount, pendingJobCount, maxReplicaCount, scaleTo int64) (int64, int64) {
-	activeJobCount := runningJobCount + pendingJobCount
-
-	availableCapacity := min(maxScale, maxReplicaCount) - activeJobCount
-
-	if availableCapacity < 0 {
-		availableCapacity = 0
-	}
-
-	return availableCapacity, scaleTo
+    availableCapacity := min(maxScale, maxReplicaCount) - runningJobCount
+    
+    if availableCapacity < 0 {
+        availableCapacity = 0
+    }
+    
+    return availableCapacity, scaleTo
 }
 
 type eagerScalingStrategy struct {
