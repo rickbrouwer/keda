@@ -860,7 +860,14 @@ func (h *scaleHandler) getScaledJobMetrics(ctx context.Context, scaledJob *kedav
 			if isTriggerActive {
 				isActive = true
 			}
-			queueLength, maxValue, targetAverageValue := scaledjob.CalculateQueueLengthAndMaxValue(metrics, metricSpecs, scaledJob.MaxReplicaCount())
+
+			// Determine the max replica count to use (trigger-level or global)
+			maxReplicaCount := scaledJob.MaxReplicaCount()
+			if scalerConfigs[scalerIndex].TriggerMaxReplicaCount != nil {
+				maxReplicaCount = *scalerConfigs[scalerIndex].TriggerMaxReplicaCount
+			}
+
+			queueLength, maxValue, targetAverageValue := scaledjob.CalculateQueueLengthAndMaxValue(metrics, metricSpecs, maxReplicaCount)
 
 			scalerLogger.V(1).Info("Scaler Metric value", "isTriggerActive", isTriggerActive, metricSpecs[0].External.Metric.Name, queueLength, "targetAverageValue", targetAverageValue)
 
