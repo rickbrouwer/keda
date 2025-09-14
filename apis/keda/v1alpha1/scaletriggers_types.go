@@ -32,6 +32,9 @@ type ScaleTriggers struct {
 
 	UseCachedMetrics bool `json:"useCachedMetrics,omitempty"`
 
+	// +optional
+	MaxReplicaCount *int32 `json:"maxReplicaCount,omitempty"`
+
 	Metadata map[string]string `json:"metadata"`
 	// +optional
 	AuthenticationRef *AuthenticationRef `json:"authenticationRef,omitempty"`
