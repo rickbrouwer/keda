@@ -58,6 +58,7 @@ func (h *scaleHandler) buildScalers(ctx context.Context, withTriggers *kedav1alp
 				ScalableObjectNamespace: withTriggers.Namespace,
 				ScalableObjectType:      withTriggers.Kind,
 				TriggerName:             trigger.Name,
+				TriggerMaxReplicaCount:  trigger.MaxReplicaCount,
 				TriggerMetadata:         trigger.Metadata,
 				TriggerType:             trigger.Type,
 				TriggerUseCachedMetrics: trigger.UseCachedMetrics,
