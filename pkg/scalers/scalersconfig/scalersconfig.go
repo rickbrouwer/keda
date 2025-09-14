@@ -50,6 +50,9 @@ type ScalerConfig struct {
 	// Any requests for metrics in between are read from the cache
 	TriggerUseCachedMetrics bool
 
+	// MaxReplicaCount (maxReplicaCount per trigger)
+	TriggerMaxReplicaCount int
+
 	// TriggerMetadata
 	TriggerMetadata map[string]string
 
