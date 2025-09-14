@@ -317,3 +317,35 @@ func CheckFallbackValid(scaledObject *ScaledObject) error {
 	}
 	return nil
 }
+
+// GetHPAMaxReplicasForTrigger returns the lowest MaxReplicas value considering both 
+// ScaledObject-level and trigger-level MaxReplicaCount
+func (so *ScaledObject) GetHPAMaxReplicasForTrigger(triggerMaxReplicas *int32) int32 {
+	globalMax := so.GetHPAMaxReplicas()
+	
+	if triggerMaxReplicas == nil {
+		return globalMax
+	}
+	
+	// Return the minimum of global and trigger-level max replicas
+	if *triggerMaxReplicas < globalMax {
+		return *triggerMaxReplicas
+	}
+	
+	return globalMax
+}
+
+// CheckTriggerMaxReplicaCountValid checks that trigger-level MaxReplicaCount values are valid
+func CheckTriggerMaxReplicaCountValid(scaledObject *ScaledObject) error {
+	globalMax := scaledObject.GetHPAMaxReplicas()
+	
+	for i, trigger := range scaledObject.Spec.Triggers {
+		if trigger.MaxReplicaCount != nil {
+			if *trigger.MaxReplicaCount <= 0 {
+				return fmt.Errorf("trigger[%d] MaxReplicaCount=%d must be greater than 0", i, *trigger.MaxReplicaCount)
+			}
+		}
+	}
+	
+	return nil
+}
