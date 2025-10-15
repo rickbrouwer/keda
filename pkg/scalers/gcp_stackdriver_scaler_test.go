@@ -50,6 +50,9 @@ var testStackdriverMetadata = []parseStackdriverMetadataTestData{
 			TargetValue:           7,
 			ActivationTargetValue: 5,
 			metricName:            "s0-gcp-stackdriver-myProject",
+			Credentials: gcp.Credentials{
+				CredentialsFromEnv: "SAMPLE_CREDS",
+			},
 			gcpAuthorization: &gcp.AuthorizationMetadata{
 				GoogleApplicationCredentials: "{}",
 				PodIdentityProviderEnabled:   false,
@@ -71,6 +74,9 @@ var testStackdriverMetadata = []parseStackdriverMetadataTestData{
 			TargetValue:           5,
 			ActivationTargetValue: 0,
 			metricName:            "s0-gcp-stackdriver-myProject",
+			Credentials: gcp.Credentials{
+				CredentialsFromEnv: "SAMPLE_CREDS",
+			},
 			gcpAuthorization: &gcp.AuthorizationMetadata{
 				GoogleApplicationCredentials: "{}",
 				PodIdentityProviderEnabled:   false,
@@ -94,6 +100,9 @@ var testStackdriverMetadata = []parseStackdriverMetadataTestData{
 			ActivationTargetValue: 0,
 			metricName:            "s0-gcp-stackdriver-myProject",
 			ValueIfNull:           func() *float64 { v := 1.5; return &v }(),
+			Credentials: gcp.Credentials{
+				CredentialsFromEnv: "SAMPLE_CREDS",
+			},
 			gcpAuthorization: &gcp.AuthorizationMetadata{
 				GoogleApplicationCredentials: "{}",
 				PodIdentityProviderEnabled:   false,
@@ -143,7 +152,7 @@ func TestStackdriverParseMetadata(t *testing.T) {
 			}, logr.Discard())
 
 			if err != nil && !testData.isError {
-				t.Errorf("Expected success but got error")
+				t.Errorf("Expected success but got error: %v", err)
 			}
 
 			if testData.isError && err == nil {

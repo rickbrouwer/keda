@@ -172,6 +172,10 @@ scalers:
           type: string
           optional: true
           metadataVariableReadable: true
+        - name: authModes
+          type: string
+          optional: true
+          metadataVariableReadable: true
     - type: artemis-queue
       parameters:
         - name: managementEndpoint
@@ -535,6 +539,12 @@ scalers:
       parameters:
         - name: organizationURL
           type: string
+          metadataVariableReadable: true
+          envVariableReadable: true
+          triggerAuthenticationVariableReadable: true
+        - name: personalAccessToken
+          type: string
+          optional: true
           envVariableReadable: true
           triggerAuthenticationVariableReadable: true
         - name: parent
@@ -555,37 +565,30 @@ scalers:
           metadataVariableReadable: true
         - name: targetPipelinesQueueLength
           type: string
-          optional: true
           default: "1"
           metadataVariableReadable: true
         - name: activationTargetPipelinesQueueLength
           type: string
-          optional: true
           default: "0"
           metadataVariableReadable: true
         - name: jobsToFetch
           type: string
-          optional: true
           default: "250"
           metadataVariableReadable: true
         - name: fetchUnfinishedJobsOnly
           type: string
-          optional: true
           default: "false"
           metadataVariableReadable: true
         - name: requireAllDemands
           type: string
-          optional: true
           default: "false"
           metadataVariableReadable: true
         - name: requireAllDemandsAndIgnoreOthers
           type: string
-          optional: true
           default: "false"
           metadataVariableReadable: true
         - name: caseInsensitiveDemandsProcessing
           type: string
-          optional: true
           default: "false"
           metadataVariableReadable: true
     - type: azure-queue
@@ -1870,6 +1873,10 @@ scalers:
           type: string
           optional: true
           metadataVariableReadable: true
+        - name: authModes
+          type: string
+          optional: true
+          metadataVariableReadable: true
     - type: prometheus
       parameters:
         - name: serverAddress
@@ -1911,6 +1918,14 @@ scalers:
           metadataVariableReadable: true
           triggerAuthenticationVariableReadable: true
         - name: timeout
+          type: string
+          optional: true
+          metadataVariableReadable: true
+        - name: identityOwner
+          type: string
+          optional: true
+          metadataVariableReadable: true
+        - name: authModes
           type: string
           optional: true
           metadataVariableReadable: true
@@ -3036,6 +3051,18 @@ scalers:
           optional: true
           metadataVariableReadable: true
         - name: filterDuration
+          type: string
+          optional: true
+          metadataVariableReadable: true
+        - name: alignmentPeriodSeconds
+          type: string
+          optional: true
+          metadataVariableReadable: true
+        - name: alignmentAligner
+          type: string
+          optional: true
+          metadataVariableReadable: true
+        - name: alignmentReducer
           type: string
           optional: true
           metadataVariableReadable: true

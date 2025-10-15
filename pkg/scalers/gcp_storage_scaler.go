@@ -33,6 +33,9 @@ type gcsMetadata struct {
 	BlobDelimiter               string `keda:"name=blobDelimiter,               order=triggerMetadata, optional"`
 	BlobPrefix                  string `keda:"name=blobPrefix,                  order=triggerMetadata, optional"`
 
+	// GCP Credentials
+	gcp.Credentials `keda:"optional"`
+
 	gcpAuthorization *gcp.AuthorizationMetadata
 	metricName       string
 	triggerIndex     int
