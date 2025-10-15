@@ -41,6 +41,32 @@ var ErrAwsNoAccessKey = errors.New("awsAccessKeyID not found")
 
 var awsSharedCredentialsCache = newSharedConfigsCache()
 
+type AwsAuthConfig struct {
+	AwsRegion          string `keda:"name=awsRegion,           order=triggerMetadata"`
+	AwsAccessKeyID     string `keda:"name=awsAccessKeyID,      order=triggerMetadata;authParams;resolvedEnv, optional"`
+	AwsSecretAccessKey string `keda:"name=awsSecretAccessKey,  order=authParams;resolvedEnv, optional"`
+	AwsSessionToken    string `keda:"name=awsSessionToken,     order=authParams, optional"`
+	AwsRoleArn         string `keda:"name=awsRoleArn,          order=authParams, optional"`
+	IdentityOwner      string `keda:"name=identityOwner,       order=triggerMetadata, default=pod"`
+}
+
+func (c *AwsAuthConfig) Validate() error {
+	if c.IdentityOwner != "" && c.IdentityOwner != "pod" && c.IdentityOwner != "operator" {
+		return fmt.Errorf("identityOwner must be either 'pod' or 'operator', got: %s", c.IdentityOwner)
+	}
+
+	// If using static credentials, both access key and secret key must be provided
+	if c.AwsAccessKeyID != "" && c.AwsSecretAccessKey == "" {
+		return fmt.Errorf("awsSecretAccessKey not found")
+	}
+
+	if c.AwsSecretAccessKey != "" && c.AwsAccessKeyID == "" {
+		return ErrAwsNoAccessKey
+	}
+
+	return nil
+}
+
 // GetAwsConfig returns an *aws.Config for a given AuthorizationMetadata
 // If AuthorizationMetadata uses static credentials or `aws` auth,
 // we recover the *aws.Config from the shared cache. If not, we generate
@@ -123,6 +149,57 @@ func GetAwsAuthorization(uniqueKey, awsRegion string, podIdentity kedav1alpha1.A
 			if len(meta.AwsSecretAccessKey) == 0 {
 				return meta, fmt.Errorf("awsSecretAccessKey not found")
 			}
+		}
+	}
+
+	return meta, nil
+}
+
+// GetAwsAuthorizationWithAuthConfig returns an AuthorizationMetadata based on AwsAuthConfig
+func GetAwsAuthorizationWithAuthConfig(uniqueKey string, podIdentity kedav1alpha1.AuthPodIdentity, authConfig *AwsAuthConfig) (AuthorizationMetadata, error) {
+	meta := AuthorizationMetadata{
+		TriggerUniqueKey: uniqueKey,
+		AwsRegion:        authConfig.AwsRegion,
+	}
+
+	if podIdentity.Provider == kedav1alpha1.PodIdentityProviderAws {
+		meta.UsingPodIdentity = true
+		if authConfig.AwsRoleArn != "" {
+			meta.AwsRoleArn = authConfig.AwsRoleArn
+		}
+		return meta, nil
+	}
+
+	// TODO, remove all the logic below and just keep the logic for
+	// parsing awsAccessKeyID, awsSecretAccessKey and awsSessionToken
+	// when aws-eks are removed
+	switch authConfig.IdentityOwner {
+	case "operator":
+		meta.PodIdentityOwner = false
+	case "", "pod":
+		meta.PodIdentityOwner = true
+
+		// Handle AwsRoleArn
+		if authConfig.AwsRoleArn != "" {
+			meta.AwsRoleArn = authConfig.AwsRoleArn
+			return meta, nil
+		}
+
+		// Handle static credentials
+		if authConfig.AwsAccessKeyID != "" && authConfig.AwsSecretAccessKey != "" {
+			meta.AwsAccessKeyID = authConfig.AwsAccessKeyID
+			meta.AwsSecretAccessKey = authConfig.AwsSecretAccessKey
+			meta.AwsSessionToken = authConfig.AwsSessionToken
+			return meta, nil
+		}
+
+		// If no credentials provided, return error
+		if authConfig.AwsAccessKeyID == "" {
+			return meta, ErrAwsNoAccessKey
+		}
+
+		if authConfig.AwsSecretAccessKey == "" {
+			return meta, fmt.Errorf("awsSecretAccessKey not found")
 		}
 	}
 

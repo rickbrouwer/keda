@@ -25,6 +25,13 @@ type AuthorizationMetadata struct {
 	PodIdentityProviderEnabled       bool
 }
 
+type GCPAuthConfig struct {
+	CredentialsFromEnv     string `keda:"name=credentialsFromEnv, order=triggerMetadata, optional"`
+	CredentialsFromEnvFile string `keda:"name=credentialsFromEnvFile, order=triggerMetadata, optional"`
+	
+	TriggerIndex int
+}
+
 func (a *AuthorizationMetadata) tokenSource(ctx context.Context, scopes ...string) (oauth2.TokenSource, error) {
 	if a.PodIdentityProviderEnabled {
 		return google.DefaultTokenSource(ctx, scopes...)
@@ -65,12 +72,22 @@ func GetGCPAuthorization(config *scalersconfig.ScalerConfig) (*AuthorizationMeta
 		return &AuthorizationMetadata{GoogleApplicationCredentials: creds}, nil
 	}
 
-	if creds := config.TriggerMetadata["credentialsFromEnv"]; creds != "" {
-		return &AuthorizationMetadata{GoogleApplicationCredentials: config.ResolvedEnv[creds]}, nil
+	// Parse the typed config to handle credentialsFromEnv and credentialsFromEnvFile
+	gcpAuth := &GCPAuthConfig{}
+	if err := config.TypedConfig(gcpAuth); err != nil {
+		return nil, err
 	}
 
-	if credsFile := config.TriggerMetadata["credentialsFromEnvFile"]; credsFile != "" {
-		return &AuthorizationMetadata{GoogleApplicationCredentialsFile: config.ResolvedEnv[credsFile]}, nil
+	if gcpAuth.CredentialsFromEnv != "" {
+		if creds, ok := config.ResolvedEnv[gcpAuth.CredentialsFromEnv]; ok {
+			return &AuthorizationMetadata{GoogleApplicationCredentials: creds}, nil
+		}
+	}
+
+	if gcpAuth.CredentialsFromEnvFile != "" {
+		if credsFile, ok := config.ResolvedEnv[gcpAuth.CredentialsFromEnvFile]; ok {
+			return &AuthorizationMetadata{GoogleApplicationCredentialsFile: credsFile}, nil
+		}
 	}
 
 	return nil, ErrGoogleApplicationCrendentialsNotFound

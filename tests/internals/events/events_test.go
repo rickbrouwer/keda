@@ -227,9 +227,9 @@ spec:
   failedJobsHistoryLimit: 0
   triggers:
     - type: cpu
+	  metricType: Utilization
       name: x
       metadata:
-        typex: Utilization
         value: "50"
 `
 

@@ -128,7 +128,6 @@ spec:
     - type: external-push
       metadata:
         scalerAddress: {{.ServiceName}}.{{.TestNamespace}}:6000
-        metricThreshold: "{{.MetricThreshold}}"
 `
 	updateMetricTemplate = `apiVersion: batch/v1
 kind: Job
