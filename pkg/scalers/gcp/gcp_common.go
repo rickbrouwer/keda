@@ -15,14 +15,13 @@ import (
 
 var (
 	GcpScopeMonitoringRead = "https://www.googleapis.com/auth/monitoring.read"
-
 	ErrGoogleApplicationCrendentialsNotFound = errors.New("google application credentials not found")
 )
 
 type AuthorizationMetadata struct {
-	GoogleApplicationCredentials            string
-	GoogleApplicationcredentialsFromEnvFile string
-	PodIdentityProviderEnabled              bool
+	GoogleApplicationCredentials     string
+	GoogleApplicationCredentialsFile string
+	PodIdentityProviderEnabled       bool
 }
 
 type GCPAuthConfig struct {
@@ -46,8 +45,8 @@ func (a *AuthorizationMetadata) tokenSource(ctx context.Context, scopes ...strin
 		return creds.TokenSource, nil
 	}
 
-	if a.GoogleApplicationcredentialsFromEnvFile != "" {
-		data, err := os.ReadFile(a.GoogleApplicationcredentialsFromEnvFile)
+	if a.GoogleApplicationCredentialsFile != "" {
+		data, err := os.ReadFile(a.GoogleApplicationCredentialsFile)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +77,7 @@ func GetGCPAuthorization(config *scalersconfig.ScalerConfig) (*AuthorizationMeta
 	}
 
 	if gcpAuth.CredentialsFromEnvFile != "" {
-		return &AuthorizationMetadata{GoogleApplicationcredentialsFromEnvFile: gcpAuth.CredentialsFromEnvFile}, nil
+		return &AuthorizationMetadata{GoogleApplicationCredentialsFile: gcpAuth.CredentialsFromEnvFile}, nil
 	}
 
 	return nil, ErrGoogleApplicationCrendentialsNotFound
