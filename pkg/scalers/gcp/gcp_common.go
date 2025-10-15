@@ -77,8 +77,8 @@ func GetGCPAuthorization(config *scalersconfig.ScalerConfig) (*AuthorizationMeta
 		return &AuthorizationMetadata{GoogleApplicationCredentials: gcpAuth.Credentials}, nil
 	}
 
-	if gcpAuth.credentialsFromEnvFile != "" {
-		return &AuthorizationMetadata{GoogleApplicationcredentialsFromEnvFile: gcpAuth.credentialsFromEnvFile}, nil
+	if gcpAuth.CredentialsFromEnvFile != "" {
+		return &AuthorizationMetadata{GoogleApplicationcredentialsFromEnvFile: gcpAuth.CredentialsFromEnvFile}, nil
 	}
 
 	return nil, ErrGoogleApplicationCrendentialsNotFound
