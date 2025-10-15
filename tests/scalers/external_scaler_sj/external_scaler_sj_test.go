@@ -31,12 +31,11 @@ var (
 )
 
 type templateData struct {
-	TestNamespace                string
-	ServiceName                  string
-	ScalerName                   string
-	ScaledJobName                string
-	MetricsServerEndpoint        string
-	MetricThreshold, MetricValue int
+	TestNamespace         string
+	ServiceName           string
+	ScalerName            string
+	ScaledJobName         string
+	MetricsServerEndpoint string
 }
 
 const (
@@ -112,7 +111,6 @@ spec:
     - type: external
       metadata:
         scalerAddress: {{.ServiceName}}.{{.TestNamespace}}:6000
-        metricThreshold: "{{.MetricThreshold}}"
 `
 	updateMetricTemplate = `apiVersion: batch/v1
 kind: Job
@@ -160,7 +158,6 @@ func getTemplateData() (templateData, []Template) {
 			ServiceName:           serviceName,
 			ScalerName:            scalerName,
 			ScaledJobName:         scaledJobName,
-			MetricThreshold:       10,
 			MetricsServerEndpoint: metricsServerEndpoint,
 		}, []Template{
 			{Name: "scalerTemplate", Config: scalerTemplate},
@@ -173,7 +170,6 @@ func testScaleOut(t *testing.T, kc *kubernetes.Clientset, data templateData) {
 	t.Log("--- testing scale out ---")
 
 	t.Log("scaling to max replicas")
-	data.MetricValue = data.MetricThreshold * 3
 	KubectlReplaceWithTemplate(t, data, "updateMetricTemplate", updateMetricTemplate)
 
 	assert.True(t, WaitForScaledJobCount(t, kc, scaledJobName, testNamespace, 3, 60, 1),
@@ -185,7 +181,6 @@ func testScaleIn(t *testing.T, kc *kubernetes.Clientset, data templateData) {
 	t.Log("--- testing scale in ---")
 
 	t.Log("scaling to idle replicas")
-	data.MetricValue = 0
 	KubectlReplaceWithTemplate(t, data, "updateMetricTemplate", updateMetricTemplate)
 
 	assert.True(t, WaitForScaledJobCount(t, kc, scaledJobName, testNamespace, 0, 120, 1),

@@ -41,7 +41,6 @@ type templateData struct {
 	ScalerName                       string
 	ScaledJobName                    string
 	MinReplicaCount, MaxReplicaCount int
-	MetricThreshold, MetricValue     int
 }
 
 const (
@@ -113,8 +112,6 @@ spec:
     - type: external
       metadata:
         scalerAddress: {{.ServiceName}}.{{.TestNamespace}}:6000
-        metricThreshold: "{{.MetricThreshold}}"
-        metricValue: "{{.MetricValue}}"
 `
 )
 
@@ -188,9 +185,8 @@ func TestScaler(t *testing.T) {
 
 	// Create kubernetes resources
 	kc := GetKubernetesClient(t)
-	metricValue := 1
 
-	data, templates := getTemplateData(metricValue)
+	data, templates := getTemplateData()
 
 	CreateKubernetesResources(t, kc, testNamespace, data, templates)
 
@@ -199,21 +195,22 @@ func TestScaler(t *testing.T) {
 		"replica count should be 0 after 1 minute")
 
 	// we ensure that there is a job running
-	assert.True(t, WaitUntilJobIsRunning(t, kc, testNamespace, data.MetricThreshold, iterationCountInitial, 1),
-		"job count should be %d after %d iterations", data.MetricThreshold, iterationCountInitial)
+	expectedJobs := 1
+	assert.True(t, WaitUntilJobIsRunning(t, kc, testNamespace, expectedJobs, iterationCountInitial, 1),
+		"job count should be %d after %d iterations", expectedJobs, iterationCountInitial)
 
 	// test scaling
-	testPause(t, kc)
-	testUnpause(t, kc, data)
+	testPause(t, kc, expectedJobs)
+	testUnpause(t, kc, expectedJobs)
 
-	testPause(t, kc)
-	testUnpauseWithBool(t, kc, data)
+	testPause(t, kc, expectedJobs)
+	testUnpauseWithBool(t, kc, expectedJobs)
 
 	// cleanup
 	DeleteKubernetesResources(t, testNamespace, data, templates)
 }
 
-func getTemplateData(metricValue int) (templateData, []Template) {
+func getTemplateData() (templateData, []Template) {
 	return templateData{
 			TestNamespace:   testNamespace,
 			ScaledJobName:   scaledJobName,
@@ -221,8 +218,6 @@ func getTemplateData(metricValue int) (templateData, []Template) {
 			ServiceName:     serviceName,
 			MinReplicaCount: minReplicaCount,
 			MaxReplicaCount: maxReplicaCount,
-			MetricThreshold: 1,
-			MetricValue:     metricValue,
 		}, []Template{
 			{Name: "scalerTemplate", Config: scalerTemplate},
 			{Name: "serviceTemplate", Config: serviceTemplate},
@@ -230,7 +225,7 @@ func getTemplateData(metricValue int) (templateData, []Template) {
 		}
 }
 
-func testPause(t *testing.T, kc *kubernetes.Clientset) {
+func testPause(t *testing.T, kc *kubernetes.Clientset, expectedJobs int) {
 	t.Log("--- testing Paused annotation ---")
 
 	_, err := ExecuteCommand(fmt.Sprintf("kubectl annotate scaledjob %s autoscaling.keda.sh/paused=true --namespace %s", scaledJobName, testNamespace))
@@ -238,15 +233,14 @@ func testPause(t *testing.T, kc *kubernetes.Clientset) {
 
 	t.Log("job count does not change as job is paused")
 
-	expectedTarget := 1
-	assert.True(t, WaitUntilJobIsSucceeded(t, kc, testNamespace, expectedTarget, iterationCountLatter, 1),
-		"job count should be %d after %d iterations", expectedTarget, iterationCountLatter)
+	assert.True(t, WaitUntilJobIsSucceeded(t, kc, testNamespace, expectedJobs, iterationCountLatter, 1),
+		"job count should be %d after %d iterations", expectedJobs, iterationCountLatter)
 
-	assert.True(t, AssertJobNotChangeKeepingIsSucceeded(t, kc, testNamespace, expectedTarget, iterationCountLatter, 1),
-		"job count should be %d during %d iterations", expectedTarget, iterationCountLatter)
+	assert.True(t, AssertJobNotChangeKeepingIsSucceeded(t, kc, testNamespace, expectedJobs, iterationCountLatter, 1),
+		"job count should be %d during %d iterations", expectedJobs, iterationCountLatter)
 }
 
-func testUnpause(t *testing.T, kc *kubernetes.Clientset, data templateData) {
+func testUnpause(t *testing.T, kc *kubernetes.Clientset, expectedJobs int) {
 	t.Log("--- testing removing Paused annotation ---")
 
 	_, err := ExecuteCommand(fmt.Sprintf("kubectl annotate scaledjob %s autoscaling.keda.sh/paused- --namespace %s", scaledJobName, testNamespace))
@@ -254,12 +248,11 @@ func testUnpause(t *testing.T, kc *kubernetes.Clientset, data templateData) {
 
 	t.Log("job count increases from zero as job is no longer paused")
 
-	expectedTarget := data.MetricThreshold
-	assert.True(t, WaitUntilJobIsRunning(t, kc, testNamespace, expectedTarget, iterationCountLatter, 1),
-		"job count should be %d after %d iterations", expectedTarget, iterationCountLatter)
+	assert.True(t, WaitUntilJobIsRunning(t, kc, testNamespace, expectedJobs, iterationCountLatter, 1),
+		"job count should be %d after %d iterations", expectedJobs, iterationCountLatter)
 }
 
-func testUnpauseWithBool(t *testing.T, kc *kubernetes.Clientset, data templateData) {
+func testUnpauseWithBool(t *testing.T, kc *kubernetes.Clientset, expectedJobs int) {
 	t.Log("--- test setting Paused annotation to false ---")
 
 	_, err := ExecuteCommand(fmt.Sprintf("kubectl annotate scaledjob %s autoscaling.keda.sh/paused=false --namespace %s --overwrite=true", scaledJobName, testNamespace))
@@ -267,7 +260,6 @@ func testUnpauseWithBool(t *testing.T, kc *kubernetes.Clientset, data templateDa
 
 	t.Log("job count increases from zero as job is no longer paused")
 
-	expectedTarget := data.MetricThreshold
-	assert.True(t, WaitUntilJobIsRunning(t, kc, testNamespace, expectedTarget, iterationCountLatter, 1),
-		"job count should be %d after %d iterations", expectedTarget, iterationCountLatter)
+	assert.True(t, WaitUntilJobIsRunning(t, kc, testNamespace, expectedJobs, iterationCountLatter, 1),
+		"job count should be %d after %d iterations", expectedJobs, iterationCountLatter)
 }

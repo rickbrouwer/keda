@@ -36,7 +36,7 @@ type templateData struct {
 	ScalerName                       string
 	ScaledJobName                    string
 	MetricsServerEndpoint            string
-	MetricThreshold, MetricValue     int
+	MetricValue                      int
 	MinReplicaCount, MaxReplicaCount int
 }
 
@@ -114,7 +114,6 @@ spec:
     - type: external
       metadata:
         scalerAddress: {{.ServiceName}}.{{.TestNamespace}}:6000
-        metricThreshold: "{{.MetricThreshold}}"
 `
 
 	updateMetricTemplate = `apiVersion: batch/v1
@@ -204,7 +203,6 @@ func getTemplateData(minReplicaCount int, maxReplicaCount int) (templateData, []
 			ServiceName:           serviceName,
 			ScalerName:            scalerName,
 			ScaledJobName:         scaledJobName,
-			MetricThreshold:       1,
 			MetricsServerEndpoint: metricsServerEndpoint,
 			MinReplicaCount:       minReplicaCount,
 			MaxReplicaCount:       maxReplicaCount,
