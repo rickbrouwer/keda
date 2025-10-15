@@ -28,6 +28,8 @@ type AuthorizationMetadata struct {
 type GCPAuthConfig struct {
 	Credentials     string `keda:"name=credentials, order=triggerMetadata;resolvedEnv;authParams, optional"`
 	CredentialsFile string `keda:"name=credentialsFile, order=triggerMetadata;resolvedEnv;authParams, optional"`
+
+	TriggerIndex int
 }
 
 func (a *AuthorizationMetadata) tokenSource(ctx context.Context, scopes ...string) (oauth2.TokenSource, error) {
