@@ -25,7 +25,7 @@ type AuthorizationMetadata struct {
 }
 
 type GCPAuthConfig struct {
-	Credentials            string `keda:"name=credentials, order=triggerMetadata;resolvedEnv;authParams, optional"`
+	Credentials            string `keda:"name=credentials;GoogleApplicationCredentials, order=triggerMetadata;resolvedEnv;authParams, optional"`
 	CredentialsFromEnvFile string `keda:"name=credentialsFromEnvFile, order=triggerMetadata;resolvedEnv;authParams, optional"`
 
 	TriggerIndex int
