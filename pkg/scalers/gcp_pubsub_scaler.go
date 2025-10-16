@@ -46,6 +46,10 @@ type pubsubMetadata struct {
 	ValueIfNull      *float64      `keda:"name=valueIfNull, order=triggerMetadata, optional"`
 	SubscriptionName string        `keda:"name=subscriptionName, order=triggerMetadata;resolvedEnv, optional"`
 	TopicName        string        `keda:"name=topicName, order=triggerMetadata;resolvedEnv, optional"`
+	
+	// GCP Authorization fields
+	gcp.AuthorizationMetadataConfig `keda:"optional"`
+	
 	// a resource is one of subscription or topic
 	resourceType     string
 	resourceName     string
