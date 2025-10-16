@@ -25,6 +25,11 @@ type AuthorizationMetadata struct {
 	PodIdentityProviderEnabled       bool
 }
 
+type GCPCredentials struct {
+	CredentialsFromEnv     string `keda:"name=credentialsFromEnv, order=triggerMetadata, optional"`
+	CredentialsFromEnvFile string `keda:"name=credentialsFromEnvFile, order=triggerMetadata, optional"`
+}
+
 func (a *AuthorizationMetadata) tokenSource(ctx context.Context, scopes ...string) (oauth2.TokenSource, error) {
 	if a.PodIdentityProviderEnabled {
 		return google.DefaultTokenSource(ctx, scopes...)
