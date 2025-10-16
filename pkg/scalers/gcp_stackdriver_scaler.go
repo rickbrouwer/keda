@@ -31,7 +31,10 @@ type stackdriverMetadata struct {
 	AlignmentPeriodSeconds   int64   `keda:"name=alignmentPeriodSeconds, order=triggerMetadata, optional"`
 	AlignmentAligner         string  `keda:"name=alignmentAligner, order=triggerMetadata, optional"`
 	AlignmentReducer         string  `keda:"name=alignmentReducer, order=triggerMetadata, optional"`
-	
+
+	// GCP Credentials
+	gcp.GCPCredentials `keda:"optional"`
+
 	metricName       string
 	TriggerIndex     int
 	gcpAuthorization *gcp.AuthorizationMetadata
