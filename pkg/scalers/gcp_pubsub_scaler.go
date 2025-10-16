@@ -50,7 +50,7 @@ type pubsubMetadata struct {
 	// a resource is one of subscription or topic
 	resourceType     string
 	resourceName     string
-	gcpAuthorization *gcp.AuthorizationMetadata `keda:"optional"`
+	gcpAuthorization *gcp.AuthorizationMetadata
 	triggerIndex     int
 }
 
