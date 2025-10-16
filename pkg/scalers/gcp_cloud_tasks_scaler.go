@@ -31,6 +31,10 @@ type gcpCloudTaskMetadata struct {
 
 	QueueName        string `keda:"name=queueName, order=triggerMetadata"`
 	ProjectID        string `keda:"name=projectID, order=triggerMetadata, deprecatedAnnounce=This scaler is deprecated. More info -> 'https://keda.sh/blog/2025-09-15-gcp-deprecations'"`
+	
+	// GCP Credentials
+	gcp.GCPCredentials `keda:"optional"`
+
 	gcpAuthorization *gcp.AuthorizationMetadata
 	triggerIndex     int
 }
