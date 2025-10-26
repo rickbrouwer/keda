@@ -172,7 +172,7 @@ spec:
     metadata:
       timezone: "Europe/Amsterdam"
       start: 15 10 * * *
-      end: 38 13 * * *
+      end: 40 13 * * *
       desiredReplicas: "1"
     metricType: "Value"
 `
