@@ -170,9 +170,9 @@ spec:
   - type: cron
     name: cron_trigger
     metadata:
-      timezone: UTC
+      timezone: "Europe/Amsterdam"
       start: 15 10 * * *
-      end: 33 13 * * *
+      end: 40 13 * * *
       desiredReplicas: "1"
     metricType: "Value"
 `
