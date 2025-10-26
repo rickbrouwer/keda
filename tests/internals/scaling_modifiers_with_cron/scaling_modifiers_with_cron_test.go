@@ -171,8 +171,8 @@ spec:
     name: cron_trigger
     metadata:
       timezone: UTC
-      start: 27 9 * * *
-      end: 35 9 * * *
+      start: 15 10 * * *
+      end: 45 14 * * *
       desiredReplicas: "1"
     metricType: "Value"
 `
