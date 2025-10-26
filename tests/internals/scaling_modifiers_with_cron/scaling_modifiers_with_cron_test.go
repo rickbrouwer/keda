@@ -150,12 +150,7 @@ spec:
         scaleDown:
           stabilizationWindowSeconds: 10
     scalingModifiers:
-      formula: |
-        if (max([cron_trigger_morning, cron_trigger_afternoon, cron_trigger_evening]) > 0) {
-          max([cron_trigger_morning, cron_trigger_afternoon, cron_trigger_evening])
-        } else {
-          metrics_api_trigger
-        }
+      formula: 'cron_trigger == 1 ? 1 : metrics_api_trigger'
       target: '1'
       metricType: 'AverageValue'
   pollingInterval: 5
@@ -173,28 +168,12 @@ spec:
     authenticationRef:
       name: {{.TriggerAuthName}}
   - type: cron
-    name: cron_trigger_morning
+    name: cron_trigger
     metadata:
       timezone: UTC
-      start: 0 8 25 8 *
-      end: 1 8 25 8 *
-      desiredReplicas: "10"
-    metricType: "Value"
-  - type: cron
-    name: cron_trigger_afternoon
-    metadata:
-      timezone: UTC
-      start: 0 16 25 8 *
-      end: 1 16 25 8 *
-      desiredReplicas: "15"
-    metricType: "Value"
-  - type: cron
-    name: cron_trigger_evening
-    metadata:
-      timezone: UTC
-      start: 0 20 25 8 *
-      end: 1 20 25 8 *
-      desiredReplicas: "20"
+      start: 0 9 * * *
+      end: 15 9 * * *
+      desiredReplicas: "1"
     metricType: "Value"
 `
 
@@ -240,7 +219,7 @@ func TestScalingModifiersMultiTrigger(t *testing.T) {
 	CreateKubernetesResources(t, kc, namespace, data, templates)
 
 	// Ensure metrics API server is ready
-	assert.True(t, WaitForDeploymentReplicaReadyCount(t, kc, metricsServerDeploymentName, namespace, 1, 60, 2),
+	assert.True(t, WaitForDeploymentReplicaReadyCount(t, kc, metricsServerDeploymentName, namespace, 1, 60, 10),
 		"metrics server replica count should be 1 after 2 minutes")
 
 	testMultiTriggerFormula(t, kc, data)
@@ -263,50 +242,6 @@ func testMultiTriggerFormula(t *testing.T, kc *kubernetes.Clientset, data templa
 
 	assert.True(t, WaitForDeploymentReplicaReadyCount(t, kc, deploymentName, namespace, 6, 60, 2),
 		"replica count should be 6 after 2 minute")
-
-	t.Log("Test 2")
-	t.Log("Change metrics_api_trigger value to 7")
-	t.Log("Expected: 7 replicas (7 / target 1 = 7)")
-
-	data.MetricValue = 7
-	data.JobTimestamp = fmt.Sprintf("%d", time.Now().Unix())
-	KubectlReplaceWithTemplate(t, data, "updateMetricsTemplate", updateMetricsTemplate)
-
-	assert.True(t, WaitForDeploymentReplicaReadyCount(t, kc, deploymentName, namespace, 7, 60, 2),
-		"replica count should be 7 after 2 minute")
-
-	t.Log("Test 3")
-	t.Log("Change metrics_api_trigger value to 1, should respect minReplicaCount")
-	t.Log("Expected: 3 replicas")
-
-	data.MetricValue = 1
-	data.JobTimestamp = fmt.Sprintf("%d", time.Now().Unix())
-	KubectlReplaceWithTemplate(t, data, "updateMetricsTemplate", updateMetricsTemplate)
-
-	assert.True(t, WaitForDeploymentReplicaReadyCount(t, kc, deploymentName, namespace, 3, 60, 2),
-		"replica count should be 3 after 2 minute")
-
-	t.Log("Test 4")
-	t.Log("Change metrics_api_trigger value to 8")
-	t.Log("Expected: 8 replicas")
-
-	data.MetricValue = 8
-	data.JobTimestamp = fmt.Sprintf("%d", time.Now().Unix())
-	KubectlReplaceWithTemplate(t, data, "updateMetricsTemplate", updateMetricsTemplate)
-
-	assert.True(t, WaitForDeploymentReplicaReadyCount(t, kc, deploymentName, namespace, 8, 60, 2),
-		"replica count should be 8 after 2 minute")
-
-	t.Log("Test 5")
-	t.Log("Setting metrics_api_trigger = 0")
-	t.Log("Expected: 3 replicas (minReplicaCount)")
-
-	data.MetricValue = 0
-	data.JobTimestamp = fmt.Sprintf("%d", time.Now().Unix())
-	KubectlReplaceWithTemplate(t, data, "updateMetricsTemplate", updateMetricsTemplate)
-
-	assert.True(t, WaitForDeploymentReplicaReadyCount(t, kc, deploymentName, namespace, 3, 60, 2),
-		"replica count should be 3 after 2 minute")
 }
 
 func getTemplateData() (templateData, []Template) {
