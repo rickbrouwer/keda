@@ -172,7 +172,7 @@ spec:
     metadata:
       timezone: UTC
       start: 27 9 * * *
-      end: 29 9 * * *
+      end: 35 9 * * *
       desiredReplicas: "1"
     metricType: "Value"
 `
