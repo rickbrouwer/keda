@@ -150,7 +150,7 @@ spec:
         scaleDown:
           stabilizationWindowSeconds: 10
     scalingModifiers:
-      formula: 'cron_trigger == 1 ? 1 : metrics_api_trigger'
+      formula: 'cron_trigger == 2 ? 2 : metrics_api_trigger'
       target: '1'
       metricType: 'AverageValue'
   pollingInterval: 5
@@ -173,7 +173,7 @@ spec:
       timezone: UTC
       start: 15 10 * * *
       end: 45 14 * * *
-      desiredReplicas: "1"
+      desiredReplicas: "2"
     metricType: "Value"
 `
 
