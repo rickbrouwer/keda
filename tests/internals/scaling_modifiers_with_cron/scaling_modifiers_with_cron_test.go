@@ -155,7 +155,7 @@ spec:
       metricType: 'AverageValue'
   pollingInterval: 5
   cooldownPeriod: 10
-  minReplicaCount: 3
+  minReplicaCount: 1
   maxReplicaCount: 30
   triggers:
   - type: metrics-api
