@@ -118,9 +118,9 @@ func (c *Conditions) AreInitialized() bool {
 	return foundReady && foundActive && foundFallback && foundPaused
 }
 
-// GetInitializedConditions returns Conditions initialized to the default -> Status: False for Paused and Unknown for the rest
+// GetInitializedConditions returns Conditions initialized to the default
 func GetInitializedConditions() *Conditions {
-	return &Conditions{{Type: ConditionReady, Status: metav1.ConditionUnknown}, {Type: ConditionActive, Status: metav1.ConditionUnknown}, {Type: ConditionFallback, Status: metav1.ConditionUnknown}, {Type: ConditionPaused, Status: metav1.ConditionFalse}}
+	return &Conditions{{Type: ConditionReady, Status: metav1.ConditionUnknown}, {Type: ConditionActive, Status: metav1.ConditionUnknown}, {Type: ConditionFallback, Status: metav1.ConditionFalse}, {Type: ConditionPaused, Status: metav1.ConditionFalse}}
 }
 
 // IsTrue is true if the condition is True
