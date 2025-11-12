@@ -888,11 +888,11 @@ func (h *scaleHandler) getScalerState(ctx context.Context, scaler scalers.Scaler
 		result.Metrics = append(result.Metrics, metrics...)
 
 		// When fallback is active, the scaler should be considered active
-		effectiveIsActive := fallbackActive || isMetricActive
+		isActiveOrFallback := fallbackActive || isMetricActive
 
 		if scalerConfig.TriggerUseCachedMetrics {
 			result.Records[metricName] = metricscache.MetricsRecord{
-				IsActive:    effectiveIsActive,
+				IsActive:    isActiveOrFallback,
 				Metric:      metrics,
 				ScalerError: err,
 			}
@@ -908,7 +908,7 @@ func (h *scaleHandler) getScalerState(ctx context.Context, scaler scalers.Scaler
 				cache.Recorder.Event(scaledObject, corev1.EventTypeWarning, eventreason.KEDAScalerFailed, err.Error())
 			}
 		} else {
-			result.IsActive = effectiveIsActive
+			result.IsActive = isActiveOrFallback
 			if !scaledObject.IsUsingModifiers() {
 				if result.IsActive {
 					if spec.External != nil {
