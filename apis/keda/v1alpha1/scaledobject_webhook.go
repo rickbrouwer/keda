@@ -327,11 +327,6 @@ func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) (admis
 	if incomingSo.Spec.MinReplicaCount != nil {
 		minReplicas = *incomingSo.Spec.MinReplicaCount
 	}
-	
-	idleReplicas := int32(0)
-	if incomingSo.Spec.IdleReplicaCount != nil {
-		idleReplicas = *incomingSo.Spec.IdleReplicaCount
-	}
 
 	// Check if any trigger uses cached metrics
 	usesCachedMetrics := false
@@ -342,9 +337,10 @@ func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) (admis
 		}
 	}
 
-	// PollingInterval warning: if minReplicaCount > 0 AND idleReplicaCount != 0 AND NOT useCachedMetrics
+	// PollingInterval warning: if minReplicaCount > 0 AND (idleReplicaCount is not set OR idleReplicaCount != 0) AND NOT useCachedMetrics
 	if incomingSo.Spec.PollingInterval != nil {
-		if minReplicas > 0 && idleReplicas != 0 && !usesCachedMetrics {
+		idleReplicaNotZero := incomingSo.Spec.IdleReplicaCount == nil || *incomingSo.Spec.IdleReplicaCount != 0
+		if minReplicas > 0 && idleReplicaNotZero && !usesCachedMetrics {
 			msg := "PollingInterval is configured but is not relevant. PollingInterval is only relevant when minReplicaCount = 0 or idleReplicaCount = 0 or useCachedMetrics is enabled"
 			warnings = append(warnings, msg)
 			if eventRecorder != nil {
@@ -353,9 +349,10 @@ func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) (admis
 		}
 	}
 
-	// CooldownPeriod warning: if minReplicaCount > 0 AND idleReplicaCount != 0
+	// CooldownPeriod warning: if minReplicaCount > 0 AND (idleReplicaCount is not set OR idleReplicaCount != 0)
 	if incomingSo.Spec.CooldownPeriod != nil {
-		if minReplicas > 0 && idleReplicas != 0 {
+		idleReplicaNotZero := incomingSo.Spec.IdleReplicaCount == nil || *incomingSo.Spec.IdleReplicaCount != 0
+		if minReplicas > 0 && idleReplicaNotZero {
 			msg := "CooldownPeriod is configured but is not relevant. CooldownPeriod is only relevant when minReplicaCount = 0 or idleReplicaCount = 0"
 			warnings = append(warnings, msg)
 			if eventRecorder != nil {
