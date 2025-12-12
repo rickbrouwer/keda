@@ -164,9 +164,25 @@ func isRemovingFinalizer(so *ScaledObject, old runtime.Object) bool {
 func validateWorkload(so *ScaledObject, action string, dryRun bool) (admission.Warnings, error) {
 	metricscollector.RecordScaledObjectValidatingTotal(so.Namespace, action)
 
+	var allWarnings admission.Warnings
+
+	// Functions that return both warnings and errors
+	verifyFunctionsWithWarnings := map[string]func(*ScaledObject, string, bool) (admission.Warnings, error){
+		"verifyScaledObjects": verifyScaledObjects,
+	}
+
+	for functionName, function := range verifyFunctionsWithWarnings {
+		scaledobjectlog.V(1).Info(fmt.Sprintf("calling %s to validate %s", functionName, so.Name))
+		warnings, err := function(so, action, dryRun)
+		if err != nil {
+			return nil, err
+		}
+		allWarnings = append(allWarnings, warnings...)
+	}
+
+	// Functions that only return errors
 	verifyFunctions := map[string]func(*ScaledObject, string, bool) error{
 		"verifyCPUMemoryScalers": verifyCPUMemoryScalers,
-		"verifyScaledObjects":    verifyScaledObjects,
 		"verifyHpas":             verifyHpas,
 		"verifyReplicaCount":     verifyReplicaCount,
 		"verifyFallback":         verifyFallback,
@@ -192,56 +208,8 @@ func validateWorkload(so *ScaledObject, action string, dryRun bool) (admission.W
 		}
 	}
 
-	// Check scaling configuration and collect warnings
-	warnings := checkScalingConfiguration(so)
-
 	scaledobjectlog.V(1).Info(fmt.Sprintf("scaledobject %s is valid", so.Name))
-	return warnings, nil
-}
-
-// checkScalingConfiguration checks Scaling Configuration, and emits events/warnings if necessary
-func checkScalingConfiguration(scaledObject *ScaledObject) admission.Warnings {
-	var warnings admission.Warnings
-
-	minReplicas := int32(0)
-	if scaledObject.Spec.MinReplicaCount != nil {
-		minReplicas = *scaledObject.Spec.MinReplicaCount
-	}
-	idleReplicas := int32(0)
-	if scaledObject.Spec.IdleReplicaCount != nil {
-		idleReplicas = *scaledObject.Spec.IdleReplicaCount
-	}
-
-	// Check if any trigger uses cached metrics
-	usesCachedMetrics := false
-	for _, trigger := range scaledObject.Spec.Triggers {
-		if trigger.UseCachedMetrics {
-			usesCachedMetrics = true
-			break
-		}
-	}
-
-	// Check PollingInterval - only relevant when minReplicaCount == 0 OR idleReplicaCount == 0 OR useCachedMetrics is true
-	if scaledObject.Spec.PollingInterval != nil {
-		if minReplicas != 0 && idleReplicas != 0 && !usesCachedMetrics {
-			msg := "PollingInterval is configured but is not relevant. PollingInterval is only relevant when minReplicaCount == 0 or idleReplicaCount == 0 or useCachedMetrics is enabled"
-			warnings = append(warnings, msg)
-			if eventRecorder != nil {
-				eventRecorder.Event(scaledObject, corev1.EventTypeWarning, eventreason.KEDAScalersInfo, msg)
-			}
-		}
-	}
-
-	// Check CooldownPeriod - only relevant when minReplicaCount == 0
-	if scaledObject.Spec.CooldownPeriod != nil && minReplicas != 0 {
-		msg := "CooldownPeriod is configured but is not relevant. CooldownPeriod is only relevant when minReplicaCount == 0"
-		warnings = append(warnings, msg)
-		if eventRecorder != nil {
-			eventRecorder.Event(scaledObject, corev1.EventTypeWarning, eventreason.KEDAScalersInfo, msg)
-		}
-	}
-
-	return warnings
+	return allWarnings, nil
 }
 
 //nolint:unparam
@@ -352,20 +320,61 @@ func verifyHpas(incomingSo *ScaledObject, action string, _ bool) error {
 	return nil
 }
 
-func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) error {
+func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) (admission.Warnings, error) {
+	var warnings admission.Warnings
+
+	minReplicas := int32(0)
+	if incomingSo.Spec.MinReplicaCount != nil {
+		minReplicas = *incomingSo.Spec.MinReplicaCount
+	}
+	idleReplicas := int32(0)
+	if incomingSo.Spec.IdleReplicaCount != nil {
+		idleReplicas = *incomingSo.Spec.IdleReplicaCount
+	}
+
+	// Check if any trigger uses cached metrics
+	usesCachedMetrics := false
+	for _, trigger := range incomingSo.Spec.Triggers {
+		if trigger.UseCachedMetrics {
+			usesCachedMetrics = true
+			break
+		}
+	}
+
+	// Check PollingInterval - only relevant when minReplicaCount == 0 OR idleReplicaCount == 0 OR useCachedMetrics is true
+	if incomingSo.Spec.PollingInterval != nil {
+		if minReplicas != 0 && idleReplicas != 0 && !usesCachedMetrics {
+			msg := "PollingInterval is configured but is not relevant. PollingInterval is only relevant when minReplicaCount = 0 or idleReplicaCount = 0 or useCachedMetrics is enabled"
+			warnings = append(warnings, msg)
+			if eventRecorder != nil {
+				eventRecorder.Event(incomingSo, corev1.EventTypeWarning, eventreason.KEDAScalersInfo, msg)
+			}
+		}
+	}
+
+	// Check CooldownPeriod - only relevant when minReplicaCount == 0 OR idleReplicaCount == 0
+	if incomingSo.Spec.CooldownPeriod != nil && minReplicas != 0 && idleReplicas != 0 {
+		msg := "CooldownPeriod is configured but is not relevant. CooldownPeriod is only relevant when minReplicaCount = 0"
+		warnings = append(warnings, msg)
+		if eventRecorder != nil {
+			eventRecorder.Event(incomingSo, corev1.EventTypeWarning, eventreason.KEDAScalersInfo, msg)
+		}
+	}
+
+	// Check for conflicts with other ScaledObjects
 	soList := &ScaledObjectList{}
 	opt := &client.ListOptions{
 		Namespace: incomingSo.Namespace,
 	}
 	err := kc.List(context.Background(), soList, opt)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	incomingSoGckr, err := ParseGVKR(restMapper, incomingSo.Spec.ScaleTargetRef.APIVersion, incomingSo.Spec.ScaleTargetRef.Kind)
 	if err != nil {
 		scaledobjectlog.Error(err, "Failed to parse Group, Version, Kind, Resource from incoming ScaledObject", "apiVersion", incomingSo.Spec.ScaleTargetRef.APIVersion, "kind", incomingSo.Spec.ScaleTargetRef.Kind)
-		return err
+		return nil, err
 	}
 
 	incomingSoHpaName := getHpaName(*incomingSo)
@@ -379,7 +388,7 @@ func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) error 
 		soGckr, err := ParseGVKR(restMapper, so.Spec.ScaleTargetRef.APIVersion, so.Spec.ScaleTargetRef.Kind)
 		if err != nil {
 			scaledobjectlog.Error(err, "Failed to parse Group, Version, Kind, Resource from ScaledObject", "soName", so.Name, "apiVersion", so.Spec.ScaleTargetRef.APIVersion, "kind", so.Spec.ScaleTargetRef.Kind)
-			return err
+			return nil, err
 		}
 
 		if soGckr.GVKString() == incomingSoGckr.GVKString() &&
@@ -387,14 +396,14 @@ func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) error 
 			err = fmt.Errorf("the workload '%s' of type '%s' is already managed by the ScaledObject '%s'", so.Spec.ScaleTargetRef.Name, incomingSoGckr.GVKString(), so.Name)
 			scaledobjectlog.Error(err, "validation error")
 			metricscollector.RecordScaledObjectValidatingErrors(incomingSo.Namespace, action, "other-scaled-object")
-			return err
+			return nil, err
 		}
 
 		if getHpaName(so) == incomingSoHpaName {
 			err = fmt.Errorf("the HPA '%s' is already managed by the ScaledObject '%s'", so.Spec.Advanced.HorizontalPodAutoscalerConfig.Name, so.Name)
 			scaledobjectlog.Error(err, "validation error")
 			metricscollector.RecordScaledObjectValidatingErrors(incomingSo.Namespace, action, "other-scaled-object-hpa")
-			return err
+			return nil, err
 		}
 	}
 
@@ -404,11 +413,11 @@ func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) error 
 		if err != nil {
 			scaledobjectlog.Error(err, "error validating ScalingModifiers")
 			metricscollector.RecordScaledObjectValidatingErrors(incomingSo.Namespace, action, "scaling-modifiers")
-
-			return err
+			return nil, err
 		}
 	}
-	return nil
+
+	return warnings, nil
 }
 
 // getFromCacheOrDirect is a helper function that tries to get an object from the cache
