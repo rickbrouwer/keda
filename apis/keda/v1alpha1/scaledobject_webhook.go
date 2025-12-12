@@ -327,6 +327,7 @@ func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) (admis
 	if incomingSo.Spec.MinReplicaCount != nil {
 		minReplicas = *incomingSo.Spec.MinReplicaCount
 	}
+	
 	idleReplicas := int32(0)
 	if incomingSo.Spec.IdleReplicaCount != nil {
 		idleReplicas = *incomingSo.Spec.IdleReplicaCount
@@ -341,9 +342,9 @@ func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) (admis
 		}
 	}
 
-	// Check PollingInterval - only relevant when minReplicaCount == 0 OR idleReplicaCount == 0 OR useCachedMetrics is true
+	// PollingInterval warning: if minReplicaCount > 0 AND idleReplicaCount != 0 AND NOT useCachedMetrics
 	if incomingSo.Spec.PollingInterval != nil {
-		if minReplicas != 0 && idleReplicas != 0 && !usesCachedMetrics {
+		if minReplicas > 0 && idleReplicas != 0 && !usesCachedMetrics {
 			msg := "PollingInterval is configured but is not relevant. PollingInterval is only relevant when minReplicaCount = 0 or idleReplicaCount = 0 or useCachedMetrics is enabled"
 			warnings = append(warnings, msg)
 			if eventRecorder != nil {
@@ -352,12 +353,14 @@ func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) (admis
 		}
 	}
 
-	// Check CooldownPeriod - only relevant when minReplicaCount == 0 OR idleReplicaCount == 0
-	if incomingSo.Spec.CooldownPeriod != nil && minReplicas != 0 && idleReplicas != 0 {
-		msg := "CooldownPeriod is configured but is not relevant. CooldownPeriod is only relevant when minReplicaCount = 0"
-		warnings = append(warnings, msg)
-		if eventRecorder != nil {
-			eventRecorder.Event(incomingSo, corev1.EventTypeWarning, eventreason.KEDAScalersInfo, msg)
+	// CooldownPeriod warning: if minReplicaCount > 0 AND idleReplicaCount != 0
+	if incomingSo.Spec.CooldownPeriod != nil {
+		if minReplicas > 0 && idleReplicas != 0 {
+			msg := "CooldownPeriod is configured but is not relevant. CooldownPeriod is only relevant when minReplicaCount = 0 or idleReplicaCount = 0"
+			warnings = append(warnings, msg)
+			if eventRecorder != nil {
+				eventRecorder.Event(incomingSo, corev1.EventTypeWarning, eventreason.KEDAScalersInfo, msg)
+			}
 		}
 	}
 
