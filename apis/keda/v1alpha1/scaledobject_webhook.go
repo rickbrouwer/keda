@@ -33,12 +33,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"github.com/kedacore/keda/v2/pkg/eventreason"
 	metricscollector "github.com/kedacore/keda/v2/pkg/metricscollector/webhook"
 )
 
@@ -48,6 +50,7 @@ var kc client.Client
 var cacheMissToDirectClient bool
 var directClient client.Client
 var restMapper meta.RESTMapper
+var eventRecorder record.EventRecorder
 
 var memoryString = "memory"
 var cpuString = "cpu"
@@ -57,6 +60,9 @@ func (so *ScaledObject) SetupWebhookWithManager(mgr ctrl.Manager, cacheMissFallb
 	if err != nil {
 		return fmt.Errorf("failed to setup kubernetes clients: %w", err)
 	}
+
+	// Setup event recorder
+	eventRecorder = mgr.GetEventRecorderFor("scaledobject-webhook")
 
 	return ctrl.NewWebhookManagedBy(mgr).
 		WithValidator(&ScaledObjectCustomValidator{}).
@@ -186,8 +192,56 @@ func validateWorkload(so *ScaledObject, action string, dryRun bool) (admission.W
 		}
 	}
 
+	// Check scaling configuration and collect warnings
+	warnings := checkScalingConfiguration(so)
+
 	scaledobjectlog.V(1).Info(fmt.Sprintf("scaledobject %s is valid", so.Name))
-	return nil, nil
+	return warnings, nil
+}
+
+// checkScalingConfiguration checks Scaling Configuration, and emits events/warnings if necessary
+func checkScalingConfiguration(scaledObject *ScaledObject) admission.Warnings {
+	var warnings admission.Warnings
+
+	minReplicas := int32(0)
+	if scaledObject.Spec.MinReplicaCount != nil {
+		minReplicas = *scaledObject.Spec.MinReplicaCount
+	}
+	idleReplicas := int32(0)
+	if scaledObject.Spec.IdleReplicaCount != nil {
+		idleReplicas = *scaledObject.Spec.IdleReplicaCount
+	}
+
+	// Check if any trigger uses cached metrics
+	usesCachedMetrics := false
+	for _, trigger := range scaledObject.Spec.Triggers {
+		if trigger.UseCachedMetrics {
+			usesCachedMetrics = true
+			break
+		}
+	}
+
+	// Check PollingInterval - only relevant when minReplicaCount == 0 OR idleReplicaCount == 0 OR useCachedMetrics is true
+	if scaledObject.Spec.PollingInterval != nil {
+		if minReplicas != 0 && idleReplicas != 0 && !usesCachedMetrics {
+			msg := "PollingInterval is configured but is not relevant. PollingInterval is only relevant when minReplicaCount == 0 or idleReplicaCount == 0 or useCachedMetrics is enabled"
+			warnings = append(warnings, msg)
+			if eventRecorder != nil {
+				eventRecorder.Event(scaledObject, corev1.EventTypeWarning, eventreason.KEDAScalersInfo, msg)
+			}
+		}
+	}
+
+	// Check CooldownPeriod - only relevant when minReplicaCount == 0
+	if scaledObject.Spec.CooldownPeriod != nil && minReplicas != 0 {
+		msg := "CooldownPeriod is configured but is not relevant. CooldownPeriod is only relevant when minReplicaCount == 0"
+		warnings = append(warnings, msg)
+		if eventRecorder != nil {
+			eventRecorder.Event(scaledObject, corev1.EventTypeWarning, eventreason.KEDAScalersInfo, msg)
+		}
+	}
+
+	return warnings
 }
 
 //nolint:unparam
