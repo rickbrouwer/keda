@@ -167,11 +167,11 @@ func validateWorkload(so *ScaledObject, action string, dryRun bool) (admission.W
 	var allWarnings admission.Warnings
 
 	verifyFunctions := map[string]func(*ScaledObject, string, bool) (admission.Warnings, error){
-		"verifyScaledObjects":      verifyScaledObjects,
-		"verifyCPUMemoryScalers":   verifyCPUMemoryScalers,
-		"verifyHpas":               verifyHpas,
-		"verifyReplicaCount":       verifyReplicaCount,
-		"verifyFallback":           verifyFallback,
+		"verifyScaledObjects":    verifyScaledObjects,
+		"verifyCPUMemoryScalers": verifyCPUMemoryScalers,
+		"verifyHpas":             verifyHpas,
+		"verifyReplicaCount":     verifyReplicaCount,
+		"verifyFallback":         verifyFallback,
 	}
 
 	for functionName, function := range verifyFunctions {
