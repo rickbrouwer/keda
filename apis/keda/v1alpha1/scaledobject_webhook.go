@@ -166,34 +166,21 @@ func validateWorkload(so *ScaledObject, action string, dryRun bool) (admission.W
 
 	var allWarnings admission.Warnings
 
-	// Functions that return both warnings and errors
-	verifyFunctionsWithWarnings := map[string]func(*ScaledObject, string, bool) (admission.Warnings, error){
-		"verifyScaledObjects": verifyScaledObjects,
+	verifyFunctions := map[string]func(*ScaledObject, string, bool) (admission.Warnings, error){
+		"verifyScaledObjects":      verifyScaledObjects,
+		"verifyCPUMemoryScalers":   verifyCPUMemoryScalers,
+		"verifyHpas":               verifyHpas,
+		"verifyReplicaCount":       verifyReplicaCount,
+		"verifyFallback":           verifyFallback,
 	}
 
-	for functionName, function := range verifyFunctionsWithWarnings {
+	for functionName, function := range verifyFunctions {
 		scaledobjectlog.V(1).Info(fmt.Sprintf("calling %s to validate %s", functionName, so.Name))
 		warnings, err := function(so, action, dryRun)
 		if err != nil {
 			return nil, err
 		}
 		allWarnings = append(allWarnings, warnings...)
-	}
-
-	// Functions that only return errors
-	verifyFunctions := map[string]func(*ScaledObject, string, bool) error{
-		"verifyCPUMemoryScalers": verifyCPUMemoryScalers,
-		"verifyHpas":             verifyHpas,
-		"verifyReplicaCount":     verifyReplicaCount,
-		"verifyFallback":         verifyFallback,
-	}
-
-	for functionName, function := range verifyFunctions {
-		scaledobjectlog.V(1).Info(fmt.Sprintf("calling %s to validate %s", functionName, so.Name))
-		err := function(so, action, dryRun)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	verifyCommonFunctions := map[string]func(interface{}, string, bool) error{
@@ -213,22 +200,22 @@ func validateWorkload(so *ScaledObject, action string, dryRun bool) (admission.W
 }
 
 //nolint:unparam
-func verifyReplicaCount(incomingSo *ScaledObject, action string, _ bool) error {
+func verifyReplicaCount(incomingSo *ScaledObject, action string, _ bool) (admission.Warnings, error) {
 	err := CheckReplicaCountBoundsAreValid(incomingSo)
 	if err != nil {
 		scaledobjectlog.WithValues("name", incomingSo.Name).Error(err, "validation error")
 		metricscollector.RecordScaledObjectValidatingErrors(incomingSo.Namespace, action, "incorrect-replicas")
 	}
-	return nil
+	return nil, err
 }
 
-func verifyFallback(incomingSo *ScaledObject, action string, _ bool) error {
+func verifyFallback(incomingSo *ScaledObject, action string, _ bool) (admission.Warnings, error) {
 	err := CheckFallbackValid(incomingSo)
 	if err != nil {
 		scaledobjectlog.WithValues("name", incomingSo.Name).Error(err, "validation error")
 		metricscollector.RecordScaledObjectValidatingErrors(incomingSo.Namespace, action, "incorrect-fallback")
 	}
-	return err
+	return nil, err
 }
 
 func verifyTriggers(incomingObject interface{}, action string, _ bool) error {
@@ -256,21 +243,21 @@ func verifyTriggers(incomingObject interface{}, action string, _ bool) error {
 	return err
 }
 
-func verifyHpas(incomingSo *ScaledObject, action string, _ bool) error {
+func verifyHpas(incomingSo *ScaledObject, action string, _ bool) (admission.Warnings, error) {
 	hpaList := &autoscalingv2.HorizontalPodAutoscalerList{}
 	opt := &client.ListOptions{
 		Namespace: incomingSo.Namespace,
 	}
 	err := kc.List(context.Background(), hpaList, opt)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var incomingSoGvkr GroupVersionKindResource
 	incomingSoGvkr, err = ParseGVKR(restMapper, incomingSo.Spec.ScaleTargetRef.APIVersion, incomingSo.Spec.ScaleTargetRef.Kind)
 	if err != nil {
 		scaledobjectlog.Error(err, "Failed to parse Group, Version, Kind, Resource from incoming ScaledObject", "apiVersion", incomingSo.Spec.ScaleTargetRef.APIVersion, "kind", incomingSo.Spec.ScaleTargetRef.Kind)
-		return err
+		return nil, err
 	}
 
 	for _, hpa := range hpaList.Items {
@@ -283,7 +270,7 @@ func verifyHpas(incomingSo *ScaledObject, action string, _ bool) error {
 		hpaGvkr, err := ParseGVKR(restMapper, hpa.Spec.ScaleTargetRef.APIVersion, hpa.Spec.ScaleTargetRef.Kind)
 		if err != nil {
 			scaledobjectlog.Error(err, "Failed to parse Group, Version, Kind, Resource from HPA", "hpaName", hpa.Name, "apiVersion", hpa.Spec.ScaleTargetRef.APIVersion, "kind", hpa.Spec.ScaleTargetRef.Kind)
-			return err
+			return nil, err
 		}
 
 		if hpaGvkr.GVKString() == incomingSoGvkr.GVKString() &&
@@ -306,18 +293,18 @@ func verifyHpas(incomingSo *ScaledObject, action string, _ bool) error {
 						err = fmt.Errorf("the existing hpa '%s' for workload '%s' of type '%s' must be specified by name in advanced settings to enable ownership transfer", hpa.Name, incomingSo.Spec.ScaleTargetRef.Name, incomingSoGvkr.GVKString())
 						scaledobjectlog.Error(err, "validation error")
 						metricscollector.RecordScaledObjectValidatingErrors(incomingSo.Namespace, action, "transfer-ownership-missing-hpa-name")
-						return err
+						return nil, err
 					}
 				} else {
 					err = fmt.Errorf("the workload '%s' of type '%s' is already managed by the hpa '%s'", incomingSo.Spec.ScaleTargetRef.Name, incomingSoGvkr.GVKString(), hpa.Name)
 					scaledobjectlog.Error(err, "validation error")
 					metricscollector.RecordScaledObjectValidatingErrors(incomingSo.Namespace, action, "other-hpa")
-					return err
+					return nil, err
 				}
 			}
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func verifyScaledObjects(incomingSo *ScaledObject, action string, _ bool) (admission.Warnings, error) {
@@ -432,9 +419,9 @@ func getFromCacheOrDirect(ctx context.Context, key client.ObjectKey, obj client.
 	return err
 }
 
-func verifyCPUMemoryScalers(incomingSo *ScaledObject, action string, dryRun bool) error {
+func verifyCPUMemoryScalers(incomingSo *ScaledObject, action string, dryRun bool) (admission.Warnings, error) {
 	if dryRun {
-		return nil
+		return nil, nil
 	}
 
 	var podSpec *corev1.PodSpec
@@ -448,24 +435,24 @@ func verifyCPUMemoryScalers(incomingSo *ScaledObject, action string, dryRun bool
 				incomingSoGvkr, err := ParseGVKR(restMapper, incomingSo.Spec.ScaleTargetRef.APIVersion, incomingSo.Spec.ScaleTargetRef.Kind)
 				if err != nil {
 					scaledobjectlog.Error(err, "Failed to parse Group, Version, Kind, Resource from incoming ScaledObject", "apiVersion", incomingSo.Spec.ScaleTargetRef.APIVersion, "kind", incomingSo.Spec.ScaleTargetRef.Kind)
-					return err
+					return nil, err
 				}
 
 				switch incomingSoGvkr.GVKString() {
 				case "apps/v1.Deployment":
 					deployment := &appsv1.Deployment{}
 					if err := getFromCacheOrDirect(context.Background(), key, deployment); err != nil {
-						return err
+						return nil, err
 					}
 					podSpec = &deployment.Spec.Template.Spec
 				case "apps/v1.StatefulSet":
 					statefulset := &appsv1.StatefulSet{}
 					if err := getFromCacheOrDirect(context.Background(), key, statefulset); err != nil {
-						return err
+						return nil, err
 					}
 					podSpec = &statefulset.Spec.Template.Spec
 				default:
-					return nil
+					return nil, nil
 				}
 			}
 			conainerName := trigger.Metadata["containerName"]
@@ -483,7 +470,7 @@ func verifyCPUMemoryScalers(incomingSo *ScaledObject, action string, dryRun bool
 						err := fmt.Errorf("the scaledobject has a %v trigger but the container %s doesn't have the %v request defined", resourceType, container.Name, resourceType)
 						scaledobjectlog.Error(err, "validation error")
 						metricscollector.RecordScaledObjectValidatingErrors(incomingSo.Namespace, action, "missing-requests")
-						return err
+						return nil, err
 					}
 				}
 			}
@@ -503,11 +490,11 @@ func verifyCPUMemoryScalers(incomingSo *ScaledObject, action string, dryRun bool
 				err := fmt.Errorf("scaledobject has only cpu/memory triggers AND minReplica is 0 (scale to zero doesn't work in this case)")
 				scaledobjectlog.Error(err, "validation error")
 				metricscollector.RecordScaledObjectValidatingErrors(incomingSo.Namespace, action, "scale-to-zero-requirements-not-met")
-				return err
+				return nil, err
 			}
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // ValidateAndCompileScalingModifiers validates all combinations of given arguments
