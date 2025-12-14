@@ -407,6 +407,7 @@ func (s *datadogScaler) getQueryResult(ctx context.Context) (float64, error) {
 	}
 }
 
+// getDatadogMetricValue retrieves metric value from Datadog Cluster Agent
 func (s *datadogScaler) getDatadogMetricValue(req *http.Request) (float64, error) {
 	resp, err := s.httpClient.Do(req)
 
@@ -417,11 +418,35 @@ func (s *datadogScaler) getDatadogMetricValue(req *http.Request) (float64, error
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
+	// Handle 422 Unprocessable Entity
+	if resp.StatusCode == http.StatusUnprocessableEntity {
+		r := gjson.GetBytes(body, "message")
+		baseMsg := "metric temporarily unavailable (422)"
+
+		if s.metadata.UseFiller {
+			logMsg := baseMsg
+			if r.Type == gjson.String {
+				logMsg = fmt.Sprintf("%s: %s", baseMsg, r.String())
+			}
+			s.logger.V(1).Info("Datadog metric temporarily unavailable, using FillValue",
+				"statusCode", resp.StatusCode,
+				"fillValue", *s.metadata.FillValue,
+				"message", logMsg)
+			return *s.metadata.FillValue, nil
+		}
+
+		if r.Type == gjson.String {
+			return 0, fmt.Errorf("%s: %s", baseMsg, r.String())
+		}
+		return 0, fmt.Errorf("%s", baseMsg)
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		r := gjson.GetBytes(body, "message")
 		if r.Type == gjson.String {
-			return 0, fmt.Errorf("error getting metric value: %s", r.String())
+			return 0, fmt.Errorf("error getting metric value (status %d): %s", resp.StatusCode, r.String())
 		}
+		return 0, fmt.Errorf("error getting metric value: unexpected status code %d", resp.StatusCode)
 	}
 
 	valueLocation := "items.0.value"
