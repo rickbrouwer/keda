@@ -12,6 +12,12 @@ import (
 	"github.com/kedacore/keda/v2/pkg/scalers/scalersconfig"
 )
 
+const (
+	lagThresholdMetricName   = "lagThreshold"
+	defaultKafkaLagThreshold = 10
+	kafkaMetricType          = "External"
+)
+
 type parseApacheKafkaMetadataTestData struct {
 	metadata                           map[string]string
 	isError                            bool
