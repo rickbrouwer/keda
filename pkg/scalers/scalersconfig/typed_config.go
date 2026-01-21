@@ -88,6 +88,12 @@ const (
 	SeparatorTag          = "separator"
 )
 
+// Retry configuration constants
+const (
+	MaxRetryAttempts = 3
+	RetryDelaySeconds = 1
+)
+
 // Params is a struct that represents the parameter list that can be used in the keda tag
 type Params struct {
 	// FieldName is the name of the field in the struct
@@ -245,7 +251,24 @@ func (sc *ScalerConfig) parseTypedConfig(typedConfig any, parentOptional bool) (
 
 // setValue is a function that sets the value of the field based on the provided params, will return error and param names that set value
 func (sc *ScalerConfig) setValue(field reflect.Value, params Params) ([]string, error) {
-	valFromConfig, exists := sc.configParamValue(params)
+	// Retry logic: try 3 times, 1 second wait between attempts
+	var valFromConfig string
+	var exists bool
+	
+	for attempt := 1; attempt <= MaxRetryAttempts; attempt++ {
+		valFromConfig, exists = sc.configParamValue(params)
+		
+		// If found, stop
+		if exists {
+			break
+		}
+		
+		//  If this is not the last attempt and the parameter is required, wait 1 second
+		if attempt < MaxRetryAttempts && !params.Optional && !params.IsDeprecated() && params.Default == "" {
+			time.Sleep(RetryDelaySeconds * time.Second)
+		}
+	}
+	
 	if exists && params.IsDeprecated() {
 		return nil, fmt.Errorf("scaler %s info: %s", sc.TriggerType, params.Deprecated)
 	}
@@ -266,9 +289,9 @@ func (sc *ScalerConfig) setValue(field reflect.Value, params Params) ([]string, 
 	if !exists && !params.Optional && !params.IsDeprecated() {
 		if len(params.Order) == 0 {
 			apo := slices.Sorted(maps.Keys(AllowedParsingOrderMap))
-			return nil, fmt.Errorf("missing required parameter %q, no 'order' tag, provide any from %v", params.Name(), apo)
+			return nil, fmt.Errorf("missing required parameter %q after %d attempts, no 'order' tag, provide any from %v", params.Name(), MaxRetryAttempts, apo)
 		}
-		return nil, fmt.Errorf("missing required parameter %q in %v", params.Name(), params.Order)
+		return nil, fmt.Errorf("missing required parameter %q in %v after %d attempts", params.Name(), params.Order, MaxRetryAttempts)
 	}
 	if params.Enum != nil {
 		enumMap := make(map[string]bool)
