@@ -42,6 +42,32 @@ func isFallbackEnabled(scaledObject *kedav1alpha1.ScaledObject) bool {
 	return scaledObject.Spec.Fallback != nil
 }
 
+// areAllTriggersFailing checks if all triggers in the ScaledObject are currently failing
+func areAllTriggersFailing(scaledObject *kedav1alpha1.ScaledObject) bool {
+	if scaledObject.Status.Health == nil || len(scaledObject.Status.Health) == 0 {
+		return false
+	}
+
+	// Count the number of triggers in the spec
+	totalTriggers := len(scaledObject.Spec.Triggers)
+	if totalTriggers == 0 {
+		return false
+	}
+
+	// Count how many triggers are failing
+	failingTriggers := 0
+	for _, health := range scaledObject.Status.Health {
+		if health.Status == kedav1alpha1.HealthStatusFailing && 
+			health.NumberOfFailures != nil && 
+			*health.NumberOfFailures > scaledObject.Spec.Fallback.FailureThreshold {
+			failingTriggers++
+		}
+	}
+
+	// All triggers must be failing
+	return failingTriggers == totalTriggers
+}
+
 func GetMetricsWithFallback(ctx context.Context, client runtimeclient.Client, scaleClient scale.ScalesGetter, metrics []external_metrics.ExternalMetricValue, suppressedError error, metricName string, scaledObject *kedav1alpha1.ScaledObject, metricSpec v2.MetricSpec) ([]external_metrics.ExternalMetricValue, bool, error) {
 	status := scaledObject.Status.DeepCopy()
 
@@ -72,6 +98,18 @@ func GetMetricsWithFallback(ctx context.Context, client runtimeclient.Client, sc
 		log.Info("Failed to validate ScaledObject Spec. Please check that parameters are positive integers", "scaledObject.Namespace", scaledObject.Namespace, "scaledObject.Name", scaledObject.Name)
 		return nil, false, suppressedError
 	case *healthStatus.NumberOfFailures > scaledObject.Spec.Fallback.FailureThreshold:
+		// Check if this behavior requires all triggers to fail
+		if scaledObject.Spec.Fallback.Behavior == kedav1alpha1.FallbackBehaviorAllTriggersFailing {
+			// Only proceed with fallback if ALL triggers are failing
+			if !areAllTriggersFailing(scaledObject) {
+				log.V(1).Info("Waiting for all triggers to fail before applying fallback", 
+					"scaledObject.Namespace", scaledObject.Namespace, 
+					"scaledObject.Name", scaledObject.Name,
+					"metricName", metricName)
+				return nil, false, suppressedError
+			}
+		}
+
 		var currentReplicas int32
 		var err error
 
@@ -182,6 +220,9 @@ func doFallback(ctx context.Context, client runtimeclient.Client, scaleClient sc
 		} else {
 			replicas = float64(fallbackReplicas)
 		}
+	case kedav1alpha1.FallbackBehaviorAllTriggersFailing:
+		// This behavior uses the static replicas, but only when all triggers fail
+		replicas = float64(fallbackReplicas)
 	default:
 		replicas = float64(fallbackReplicas)
 	}
