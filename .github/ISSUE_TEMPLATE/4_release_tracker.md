@@ -3,7 +3,7 @@ name: KEDA Release Tracker
 about: Template to keep track of the progress for a new KEDA release.
 title: "Release: "
 labels: governance,release-management
-assignees: wozniakjan,zroubalik,jorturfer
+assignees: wozniakjan,zroubalik,jorturfer,rickbrouwer
 ---
 
 This issue template is used to track the rollout of a new KEDA version.
