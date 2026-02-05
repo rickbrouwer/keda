@@ -21,7 +21,6 @@ type cpuMemoryScaler struct {
 }
 
 type cpuMemoryMetadata struct {
-	Type               string `keda:"name=type,          order=triggerMetadata, enum=Utilization;AverageValue, optional, deprecated=The 'type' setting is DEPRECATED and is removed in v2.18 - Use 'metricType' instead."`
 	Value              string `keda:"name=value,         order=triggerMetadata"`
 	ContainerName      string `keda:"name=containerName, order=triggerMetadata, optional"`
 	TriggerIndex       int

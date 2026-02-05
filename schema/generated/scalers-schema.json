@@ -1191,17 +1191,6 @@
             "type": "cpu",
             "parameters": [
                 {
-                    "name": "type",
-                    "type": "string",
-                    "optional": true,
-                    "allowedValue": [
-                        "Utilization",
-                        "AverageValue"
-                    ],
-                    "deprecated": "The 'type' setting is DEPRECATED and is removed in v2.18 - Use 'metricType' instead.",
-                    "metadataVariableReadable": true
-                },
-                {
                     "name": "value",
                     "type": "string",
                     "metadataVariableReadable": true
@@ -1217,17 +1206,6 @@
         {
             "type": "memory",
             "parameters": [
-                {
-                    "name": "type",
-                    "type": "string",
-                    "optional": true,
-                    "allowedValue": [
-                        "Utilization",
-                        "AverageValue"
-                    ],
-                    "deprecated": "The 'type' setting is DEPRECATED and is removed in v2.18 - Use 'metricType' instead.",
-                    "metadataVariableReadable": true
-                },
                 {
                     "name": "value",
                     "type": "string",

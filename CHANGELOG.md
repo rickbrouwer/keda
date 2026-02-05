@@ -96,7 +96,7 @@ New deprecation(s):
 
 ### Other
 
-- TODO ([#XXX](https://github.com/kedacore/keda/issues/XXX))
+- **CPU Memory scaler**: The `type` setting code is removed ([#7443](https://github.com/kedacore/keda/pull/7443))
 
 ## v2.19.0
 
