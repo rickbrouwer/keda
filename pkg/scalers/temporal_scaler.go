@@ -230,6 +230,12 @@ func getTemporalClient(ctx context.Context, meta *temporalMetadata, log logr.Log
 	if meta.APIKey != "" {
 		options.Credentials = sdk.NewAPIKeyStaticCredentials(meta.APIKey)
 		tlsConfig = kedautil.CreateTLSClientConfig(meta.UnsafeSsl)
+
+		if tlsConfig.Certificates == nil {
+			tlsConfig.Certificates = []tls.Certificate{}
+		}
+
+		tlsConfig.GetClientCertificate = nil
 	}
 
 	if meta.Cert != "" && meta.Key != "" {
