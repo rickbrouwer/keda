@@ -175,6 +175,8 @@ func buildScaler(ctx context.Context, client client.Client, triggerType string, 
 		return scalers.NewDynatraceScaler(config)
 	case "elasticsearch":
 		return scalers.NewElasticsearchScaler(config)
+	case "elastic-forecast":
+		return scalers.NewElasticForecastScaler(config)
 	case "etcd":
 		return scalers.NewEtcdScaler(config)
 	case "external":
