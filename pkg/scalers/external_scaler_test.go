@@ -202,6 +202,7 @@ type testExternalScaler struct {
 func (e *testExternalScaler) IsActive(context.Context, *pb.ScaledObjectRef) (*pb.IsActiveResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IsActive not implemented")
 }
+
 func (e *testExternalScaler) StreamIsActive(_ *pb.ScaledObjectRef, epsServer pb.ExternalScaler_StreamIsActiveServer) error {
 	for {
 		select {
@@ -235,6 +236,7 @@ func TestWaitForState(t *testing.T) {
 		t.Errorf("start grpcServer with %s failed:%s", address, err)
 		return
 	}
+
 	activeCh := make(chan bool)
 	pb.RegisterExternalScalerServer(grpcServer, &testExternalScaler{
 		t:      t,
@@ -246,12 +248,7 @@ func TestWaitForState(t *testing.T) {
 			t.Error(err, "error from grpcServer")
 		}
 	}()
-	// send active data
-	go func() {
-		activeCh <- true
-	}()
 
-	// build client connect to server
 	grpcClient, err := grpc.NewClient(address,
 		grpc.WithDefaultServiceConfig(grpcConfig),
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -259,45 +256,47 @@ func TestWaitForState(t *testing.T) {
 		t.Errorf("connect grpc server %s failed:%s", address, err)
 		return
 	}
+	defer grpcClient.Close()
+
+	ctx := context.Background()
+	if deadline, ok := t.Deadline(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+
 	graceDone := make(chan struct{})
 	go func() {
 		// server stop will lead to Idle.
-		<-waitForState(context.TODO(), grpcClient, connectivity.Idle, connectivity.Shutdown)
-		grpcClient.Close()
-		// after close the state to shut down.
+		<-waitForState(ctx, grpcClient, connectivity.Idle, connectivity.Shutdown)
 		t.Log("close state:", grpcClient.GetState().String())
 		close(graceDone)
 	}()
-	client := pb.NewExternalScalerClient(grpcClient)
 
-	// request StreamIsActive interface
-	ctx, cancel := context.WithTimeout(context.TODO(), time.Second)
-	defer cancel()
+	client := pb.NewExternalScalerClient(grpcClient)
 	stream, err := client.StreamIsActive(ctx, &pb.ScaledObjectRef{})
 	if err != nil {
 		t.Errorf("StreamIsActive request failed:%s", err)
 		return
 	}
 
-	// check result value
+	activeCh <- true
+
 	resp, err := stream.Recv()
 	if err != nil {
 		t.Error(err)
 		return
 	}
 	if !resp.Result {
-		t.Error("StreamIsActive should receive")
+		t.Error("StreamIsActive should receive true")
 	}
 
-	// stop server
-	time.Sleep(time.Second * 5)
 	grpcServer.GracefulStop()
 
 	select {
 	case <-graceDone:
-		// test ok.
-		return
-	case <-time.After(time.Second * 1):
-		t.Error("waitForState should be get connectivity.Shutdown.")
+		// done
+	case <-ctx.Done():
+		t.Error("waitForState should have detected connectivity.Shutdown before deadline")
 	}
 }
