@@ -256,7 +256,6 @@ func TestWaitForState(t *testing.T) {
 		t.Errorf("connect grpc server %s failed:%s", address, err)
 		return
 	}
-	defer grpcClient.Close()
 
 	ctx := context.Background()
 	if deadline, ok := t.Deadline(); ok {
@@ -267,8 +266,7 @@ func TestWaitForState(t *testing.T) {
 
 	graceDone := make(chan struct{})
 	go func() {
-		// server stop will lead to Idle.
-		<-waitForState(ctx, grpcClient, connectivity.Idle, connectivity.Shutdown)
+		<-waitForState(ctx, grpcClient, connectivity.Shutdown)
 		t.Log("close state:", grpcClient.GetState().String())
 		close(graceDone)
 	}()
@@ -292,6 +290,7 @@ func TestWaitForState(t *testing.T) {
 	}
 
 	grpcServer.GracefulStop()
+	grpcClient.Close() // triggert de Shutdown state waarop waitForState wacht
 
 	select {
 	case <-graceDone:
