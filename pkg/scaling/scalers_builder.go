@@ -26,6 +26,7 @@ import (
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	"github.com/kedacore/keda/v2/pkg/common/message"
 	"github.com/kedacore/keda/v2/pkg/eventreason"
+	"github.com/kedacore/keda/v2/pkg/scalerfilter"
 	"github.com/kedacore/keda/v2/pkg/scalers"
 	"github.com/kedacore/keda/v2/pkg/scalers/scalersconfig"
 	"github.com/kedacore/keda/v2/pkg/scaling/cache"
@@ -121,6 +122,9 @@ func (h *scaleHandler) buildScalers(ctx context.Context, withTriggers *kedav1alp
 
 // buildScaler builds a scaler form input config and trigger type
 func buildScaler(ctx context.Context, client client.Client, triggerType string, config *scalersconfig.ScalerConfig) (scalers.Scaler, error) {
+	if !scalerfilter.IsEnabled(triggerType) {
+		return nil, fmt.Errorf("scaler type %q is disabled on this KEDA instance (see --enabled-scalers)", triggerType)
+	}
 	// TRIGGERS-START
 	switch triggerType {
 	case "activemq":

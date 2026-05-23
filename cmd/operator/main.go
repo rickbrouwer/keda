@@ -46,6 +46,7 @@ import (
 	"github.com/kedacore/keda/v2/pkg/k8s"
 	"github.com/kedacore/keda/v2/pkg/metricscollector"
 	"github.com/kedacore/keda/v2/pkg/metricsservice"
+	"github.com/kedacore/keda/v2/pkg/scalerfilter"
 	"github.com/kedacore/keda/v2/pkg/scalers/authentication"
 	"github.com/kedacore/keda/v2/pkg/scaling"
 	"github.com/kedacore/keda/v2/pkg/scaling/resolver"
@@ -90,6 +91,7 @@ func main() {
 	var enableWebhookPatching bool
 	var enableAPIServicePatching bool
 	var filePathAuthRootPath string
+	var enabledScalers []string
 	pflag.BoolVar(&enablePrometheusMetrics, "enable-prometheus-metrics", true, "Enable the prometheus metric of keda-operator.")
 	pflag.BoolVar(&enableOpenTelemetryMetrics, "enable-opentelemetry-metrics", false, "Enable the opentelemetry metric of keda-operator.")
 	pflag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the prometheus metric endpoint binds to.")
@@ -116,6 +118,7 @@ func main() {
 	pflag.BoolVar(&enableWebhookPatching, "enable-webhook-patching", true, "Enable patching of webhook resources. Defaults to true.")
 	pflag.BoolVar(&enableAPIServicePatching, "enable-apiservice-patching", true, "Enable patching of APIService resources. Defaults to true.")
 	pflag.StringVar(&filePathAuthRootPath, "filepath-auth-root-path", "", "Allowed filesystem path for KEDA to read auth from.")
+	pflag.StringSliceVar(&enabledScalers, "enabled-scalers", nil, "Comma-separated allow-list of scaler trigger types (e.g. 'cpu,memory,prometheus'). When unset, all scalers are enabled.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
@@ -155,6 +158,11 @@ func main() {
 	resolver.SetConfig(&resolver.Config{
 		FilePathAuthRootPath: filePathAuthRootPath,
 	})
+
+	scalerfilter.Set(enabledScalers)
+	if len(enabledScalers) > 0 {
+		setupLog.Info("scaler allow-list active", "enabled-scalers", enabledScalers)
+	}
 
 	cfg := ctrl.GetConfigOrDie()
 	cfg.QPS = adapterClientRequestQPS

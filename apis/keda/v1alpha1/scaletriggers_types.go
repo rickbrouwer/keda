@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+
+	"github.com/kedacore/keda/v2/pkg/scalerfilter"
 )
 
 // ScaleTriggers reference the scaler that will be used
@@ -64,6 +66,10 @@ func ValidateTriggers(triggers []ScaleTriggers) error {
 		triggerNames := make(map[string]bool, triggersCount)
 		for i := 0; i < triggersCount; i++ {
 			trigger := triggers[i]
+
+			if !scalerfilter.IsEnabled(trigger.Type) {
+				return fmt.Errorf("scaler type %q is disabled on this KEDA instance (see --enabled-scalers)", trigger.Type)
+			}
 
 			if trigger.UseCachedMetrics {
 				if trigger.Type == "cpu" || trigger.Type == "memory" || trigger.Type == "cron" {

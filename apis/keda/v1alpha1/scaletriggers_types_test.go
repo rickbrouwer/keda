@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kedacore/keda/v2/pkg/scalerfilter"
 )
 
 func TestValidateTriggers(t *testing.T) {
@@ -102,4 +104,26 @@ func TestValidateTriggers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateTriggers_EnabledScalersAllowList(t *testing.T) {
+	t.Cleanup(func() { scalerfilter.Set(nil) })
+
+	scalerfilter.Set([]string{"cpu", "prometheus"})
+
+	t.Run("rejects disabled type", func(t *testing.T) {
+		err := ValidateTriggers([]ScaleTriggers{{Name: "t1", Type: "kafka"}})
+		assert.EqualError(t, err, "scaler type \"kafka\" is disabled on this KEDA instance (see --enabled-scalers)")
+	})
+
+	t.Run("accepts enabled type", func(t *testing.T) {
+		err := ValidateTriggers([]ScaleTriggers{{Name: "t1", Type: "prometheus"}})
+		assert.NoError(t, err)
+	})
+
+	t.Run("clearing the list restores prior behaviour", func(t *testing.T) {
+		scalerfilter.Set(nil)
+		err := ValidateTriggers([]ScaleTriggers{{Name: "t1", Type: "kafka"}})
+		assert.NoError(t, err)
+	})
 }
