@@ -269,7 +269,7 @@ func (h *scaleHandler) startScaleLoop(ctx context.Context, withTriggers *kedav1a
 	pollingInterval := withTriggers.GetPollingInterval()
 	logger.V(1).Info("Watching with pollingInterval", "PollingInterval", pollingInterval)
 
-	_, isScaledObject := scalableObject.(*kedav1alpha1.ScaledObject)
+	so, isScaledObject := scalableObject.(*kedav1alpha1.ScaledObject)
 	next := time.Now()
 
 	for {
@@ -282,6 +282,23 @@ func (h *scaleHandler) startScaleLoop(ctx context.Context, withTriggers *kedav1a
 		next = time.Now().Add(pollingInterval)
 
 		h.checkScalers(ctx, scalableObject, scalingMutex)
+
+		// If pollingInterval is not relevant, the HPA drives all scaling and polling the triggers has no
+		// effect. We still run checkScalers once above to establish the ScaledObject status and the
+		// minReplicaCount floor, then stop polling and hand scaling over to the HPA. The scale loop is
+		// restarted on any spec change, so this is re-evaluated whenever minReplicaCount, idleReplicaCount
+		// or the triggers change.
+		if isScaledObject && !so.IsPollingRelevant() {
+			logger.V(1).Info("PollingInterval is not relevant, stopping the scale loop and letting the HPA manage scaling")
+			h.recorder.Eventf(so, nil, corev1.EventTypeNormal, eventreason.KEDAScalersInfo, eventreason.KEDAScalersInfo, "%s", "PollingInterval is not relevant, the HPA manages scaling so KEDA stops polling the triggers")
+			tmr.Stop()
+			<-ctx.Done()
+			logger.V(1).Info("Context canceled")
+			if err := h.ClearScalersCache(ctx, scalableObject); err != nil {
+				logger.Error(err, "error clearing scalers cache")
+			}
+			return
+		}
 
 		select {
 		case <-tmr.C:
